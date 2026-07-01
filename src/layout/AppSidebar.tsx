@@ -17,7 +17,6 @@ import {
   TableIcon,
   UserCircleIcon,
 } from "../icons/index";
-import SidebarWidget from "./SidebarWidget";
 
 type NavItem = {
   name: string;
@@ -36,11 +35,6 @@ const navItems: NavItem[] = [
     icon: <CalenderIcon />,
     name: "Calendar",
     path: "/calendar",
-  },
-  {
-    icon: <UserCircleIcon />,
-    name: "User Profile",
-    path: "/profile",
   },
 
   {
@@ -97,6 +91,49 @@ const othersItems: NavItem[] = [
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const pathname = usePathname();
+
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem("auth_user");
+    if (storedUser) {
+      try {
+        setCurrentUser(JSON.parse(storedUser));
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  }, []);
+
+  const filteredNavItems = React.useMemo(() => {
+    const items = [...navItems];
+    if (currentUser) {
+      if (currentUser.role === "super_admin" || currentUser.role === "unit_admin") {
+        items.push({
+          icon: <UserCircleIcon />,
+          name: "Kelola Karyawan",
+          path: "/employees",
+        });
+        items.push({
+          icon: <BoxCubeIcon />,
+          name: "Kelola Unit",
+          path: "/units",
+        });
+        items.push({
+          icon: <ListIcon />,
+          name: "Kelola Tugas",
+          path: "/tasks",
+        });
+      } else if (currentUser.role === "employee") {
+        items.push({
+          icon: <ListIcon />,
+          name: "Tugas Saya",
+          path: "/my-tasks",
+        });
+      }
+    }
+    return items;
+  }, [currentUser]);
 
   const renderMenuItems = (
     navItems: NavItem[],
@@ -353,7 +390,7 @@ const AppSidebar: React.FC = () => {
                   <HorizontaLDots />
                 )}
               </h2>
-              {renderMenuItems(navItems, "main")}
+              {renderMenuItems(filteredNavItems, "main")}
             </div>
 
             <div className="">
@@ -374,7 +411,6 @@ const AppSidebar: React.FC = () => {
             </div>
           </div>
         </nav>
-        {isExpanded || isHovered || isMobileOpen ? <SidebarWidget /> : null}
       </div>
     </aside>
   );
