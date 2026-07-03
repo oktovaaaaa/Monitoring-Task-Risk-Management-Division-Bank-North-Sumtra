@@ -105,8 +105,8 @@ export default function ProfileEdit() {
     setSuccess("");
     setLoading(true);
 
-    if (!fullName) {
-      setError("Nama Lengkap wajib diisi.");
+    if (!fullName || !npp) {
+      setError("Nama Lengkap dan NPP wajib diisi.");
       setLoading(false);
       return;
     }
@@ -284,7 +284,7 @@ export default function ProfileEdit() {
               </div>
 
               <div>
-                <Label>NPP (Nomor Pokok Pegawai)</Label>
+                <Label>NPP (Nomor Pokok Pegawai) <span className="text-error-500">*</span></Label>
                 <Input
                   placeholder="Masukkan NPP Anda"
                   value={npp}

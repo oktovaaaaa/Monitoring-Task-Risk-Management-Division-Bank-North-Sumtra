@@ -1,3 +1,4 @@
+import { Metadata } from 'next';
 import { Outfit } from 'next/font/google';
 import './globals.css';
 import "flatpickr/dist/flatpickr.css";
@@ -7,6 +8,12 @@ import { ThemeProvider } from '@/context/ThemeContext';
 const outfit = Outfit({
   subsets: ["latin"],
 });
+
+export const metadata: Metadata = {
+  icons: {
+    icon: '/images/sumut.png',
+  },
+};
 
 export default function RootLayout({
   children,

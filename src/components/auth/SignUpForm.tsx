@@ -25,6 +25,8 @@ export default function SignUpForm() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
+  const [npp, setNpp] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("employee");
   const [unitId, setUnitId] = useState("");
@@ -89,8 +91,8 @@ export default function SignUpForm() {
     setSuccess("");
     setLoading(true);
 
-    if (!firstName || !lastName || !email || !password) {
-      setError("Please fill in all required fields.");
+    if (!firstName || !lastName || !npp || !password) {
+      setError("Please fill in all required fields (First Name, Last Name, NPP, Password).");
       setLoading(false);
       return;
     }
@@ -102,7 +104,9 @@ export default function SignUpForm() {
     }
 
     const payload: any = {
-      email,
+      email: email || null,
+      npp,
+      username: username || null,
       password,
       full_name: `${firstName} ${lastName}`,
       role,
@@ -138,6 +142,8 @@ export default function SignUpForm() {
       setFirstName("");
       setLastName("");
       setEmail("");
+      setNpp("");
+      setUsername("");
       setPassword("");
     } catch (err: any) {
       setError(err.message || "Registration failed. Please try again.");
@@ -266,7 +272,36 @@ export default function SignUpForm() {
 
                 <div>
                   <Label>
-                    Email<span className="text-error-500">*</span>
+                    NPP (Nomor Pokok Pegawai)<span className="text-error-500">*</span>
+                  </Label>
+                  <Input
+                    type="text"
+                    placeholder="Contoh: 42324001"
+                    value={npp}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setNpp(val);
+                      setUsername(val.slice(0, 4));
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <Label>
+                    Username (Auto-generated)
+                  </Label>
+                  <Input
+                    type="text"
+                    value={username}
+                    disabled
+                    className="bg-gray-100 dark:bg-white/5 cursor-not-allowed"
+                    placeholder="Otomatis dari 4 karakter pertama NPP"
+                  />
+                </div>
+
+                <div>
+                  <Label>
+                    Email (Optional)
                   </Label>
                   <Input
                     type="email"

@@ -192,8 +192,8 @@ export default function EmployeesPage() {
     e.preventDefault();
     setFormLoading(true);
 
-    if (!fullName || !email) {
-      showPopup("error", "Nama Lengkap dan Email wajib diisi.");
+    if (!fullName || !npp) {
+      showPopup("error", "Nama Lengkap dan NPP wajib diisi.");
       setFormLoading(false);
       return;
     }
@@ -207,8 +207,8 @@ export default function EmployeesPage() {
     const payload: any = {
       full_name: fullName,
       username: username || null,
-      email: email,
-      npp: npp || null,
+      email: email || null,
+      npp: npp,
       role: "employee",
     };
 
@@ -360,7 +360,7 @@ export default function EmployeesPage() {
             </h2>
 
             <form onSubmit={handleRegisterEmployee} className="space-y-4">
-              {/* Row 1: Nama Lengkap & Email (Wajib) */}
+              {/* Row 1: Nama Lengkap & NPP (Wajib) */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <Label>Nama Lengkap <span className="text-error-500">*</span></Label>
@@ -373,36 +373,41 @@ export default function EmployeesPage() {
                 </div>
 
                 <div>
-                  <Label>Email <span className="text-error-500">*</span></Label>
+                  <Label>NPP (Nomor Pokok Pegawai) <span className="text-error-500">*</span></Label>
                   <Input
-                    type="email"
-                    placeholder="name@company.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    maxLength={50}
+                    placeholder="Contoh: 42324001"
+                    value={npp}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setNpp(val);
+                      setUsername(val.slice(0, 4));
+                    }}
+                    maxLength={20}
                   />
                 </div>
               </div>
 
-              {/* Row 2: Username & NPP (Tidak Wajib) */}
+              {/* Row 2: Username & Email (Opsional) */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <Label>Username</Label>
+                  <Label>Username (Auto-generated)</Label>
                   <Input
-                    placeholder="Username (Opsional)"
+                    placeholder="Otomatis dari 4 karakter pertama NPP"
                     value={username}
-                    onChange={(e) => setUsername(e.target.value)}
+                    disabled
+                    className="bg-gray-100 dark:bg-white/5 cursor-not-allowed"
                     maxLength={30}
                   />
                 </div>
 
                 <div>
-                  <Label>NPP (Nomor Pokok Pegawai)</Label>
+                  <Label>Email</Label>
                   <Input
-                    placeholder="Contoh: NPP12345 (Opsional)"
-                    value={npp}
-                    onChange={(e) => setNpp(e.target.value)}
-                    maxLength={20}
+                    type="email"
+                    placeholder="name@company.com (Opsional)"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    maxLength={50}
                   />
                 </div>
               </div>

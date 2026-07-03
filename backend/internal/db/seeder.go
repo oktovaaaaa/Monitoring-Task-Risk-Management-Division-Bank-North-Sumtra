@@ -9,8 +9,13 @@ import (
 )
 
 func SeedDatabase(db *gorm.DB) {
+	// Update existing users with NULL NPP to prevent migration failure
+	if db.Migrator().HasTable(&models.User{}) {
+		db.Exec("UPDATE users SET npp = 'NPP-' || substring(id::text, 1, 8) WHERE npp IS NULL OR npp = ''")
+	}
+
 	log.Println("Running AutoMigrations...")
-	err := db.AutoMigrate(&models.Unit{}, &models.User{}, &models.Captcha{}, &models.Setting{}, &models.Task{}, &models.Notification{})
+	err := db.AutoMigrate(&models.Unit{}, &models.User{}, &models.Captcha{}, &models.Setting{}, &models.Task{}, &models.Notification{}, &models.SubTask{}, &models.SubTaskSubmission{})
 	if err != nil {
 		log.Fatalf("AutoMigration failed: %v", err)
 	}
@@ -48,27 +53,40 @@ func SeedDatabase(db *gorm.DB) {
 		db.First(&defaultUnit)
 	}
 
-	// Seed default Super Admin
-	var adminCount int64
-	db.Model(&models.User{}).Where("role = ?", models.RoleSuperAdmin).Count(&adminCount)
-	if adminCount == 0 {
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("Password123"), bcrypt.DefaultCost)
-		if err != nil {
-			log.Fatalf("Failed to hash default admin password: %v", err)
-		}
+	// Seed/Update default Super Admin
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("Osvald8080"), bcrypt.DefaultCost)
+	if err != nil {
+		log.Fatalf("Failed to hash default admin password: %v", err)
+	}
 
-		admin := models.User{
-			Email:        "superadmin@admin.com",
+	var superAdmin models.User
+	err = db.Where("role = ?", models.RoleSuperAdmin).First(&superAdmin).Error
+	if err != nil {
+		// Not found, create it
+		usernameVal := "supe"
+		superAdmin = models.User{
+			NPP:          "superadmin",
+			Username:     &usernameVal,
 			PasswordHash: string(hashedPassword),
 			FullName:     "Super Admin",
 			Role:         models.RoleSuperAdmin,
 			UnitID:       nil,
 		}
-
-		if err := db.Create(&admin).Error; err != nil {
+		if err := db.Create(&superAdmin).Error; err != nil {
 			log.Printf("Failed to seed default admin: %v", err)
 		} else {
-			log.Println("Default Super Admin seeded successfully (Email: superadmin@admin.com, Password: Password123)")
+			log.Println("Default Super Admin seeded successfully (NPP: superadmin, Password: Osvald8080)")
+		}
+	} else {
+		// Found, update its NPP and password to match new requirement
+		superAdmin.NPP = "superadmin"
+		usernameVal := "supe"
+		superAdmin.Username = &usernameVal
+		superAdmin.PasswordHash = string(hashedPassword)
+		if err := db.Save(&superAdmin).Error; err != nil {
+			log.Printf("Failed to update super admin: %v", err)
+		} else {
+			log.Println("Super Admin credentials updated successfully (NPP: superadmin, Password: Osvald8080)")
 		}
 	}
 }

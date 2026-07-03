@@ -3,13 +3,14 @@ package service
 import (
 	"backend/internal/models"
 	"backend/internal/repository"
+	"bytes"
+	"encoding/base64"
 	"errors"
-	"fmt"
-	"math/rand"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/steambap/captcha"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -51,22 +52,33 @@ func NewAuthService(
 func (s *authService) GenerateCaptcha() (*models.CaptchaResponse, error) {
 	_ = s.captchaRepo.CleanExpired()
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	code := fmt.Sprintf("%03d", r.Intn(1000))
+	img, err := captcha.New(200, 64)
+	if err != nil {
+		return nil, err
+	}
 
-	captcha := &models.Captcha{
-		Code:      code,
+	var buf bytes.Buffer
+	err = img.WriteImage(&buf)
+	if err != nil {
+		return nil, err
+	}
+	base64Str := base64.StdEncoding.EncodeToString(buf.Bytes())
+	base64DataURI := "data:image/png;base64," + base64Str
+
+	capObj := &models.Captcha{
+		Code:      img.Text,
 		ExpiredAt: time.Now().Add(time.Minute * 2),
 	}
 
-	err := s.captchaRepo.Create(captcha)
+	err = s.captchaRepo.Create(capObj)
 	if err != nil {
 		return nil, err
 	}
 
 	return &models.CaptchaResponse{
-		CaptchaID:   captcha.ID,
-		CaptchaCode: captcha.Code,
+		CaptchaID:    capObj.ID,
+		CaptchaCode:  capObj.Code,
+		CaptchaImage: base64DataURI,
 	}, nil
 }
 
@@ -89,22 +101,27 @@ func (s *authService) Login(req models.LoginRequest) (*models.AuthResponse, erro
 		return nil, errors.New("incorrect captcha answer")
 	}
 
-	// 2. Find user by email or username
-	user, err := s.userRepo.FindByEmailOrUsername(req.Email)
+	// 2. Find user by NPP
+	user, err := s.userRepo.FindByNPP(req.NPP)
 	if err != nil {
-		return nil, errors.New("invalid email/username or password")
+		return nil, errors.New("invalid NPP or password")
 	}
 
 	// Compare password hash
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password))
 	if err != nil {
-		return nil, errors.New("invalid email/username or password")
+		return nil, errors.New("invalid NPP or password")
 	}
 
 	// Generate JWT Token
+	emailVal := ""
+	if user.Email != nil {
+		emailVal = *user.Email
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub":       user.ID.String(),
-		"email":     user.Email,
+		"email":     emailVal,
+		"npp":       user.NPP,
 		"role":      string(user.Role),
 		"unit_id":   getUUIDString(user.UnitID),
 		"exp":       time.Now().Add(time.Hour * 24).Unix(), // 24 hours
@@ -163,22 +180,23 @@ func (s *authService) Register(req models.RegisterRequest, creatorRole models.Ro
 	}
 
 	// Check if email already exists
-	existingUser, _ := s.userRepo.FindByEmail(req.Email)
-	if existingUser != nil {
-		return nil, errors.New("email is already registered")
-	}
-
-	// Check if username already exists
-	if req.Username != nil && *req.Username != "" {
-		existingUserByUsername, _ := s.userRepo.FindByEmailOrUsername(*req.Username)
-		if existingUserByUsername != nil {
-			return nil, errors.New("username is already taken")
+	if req.Email != nil && *req.Email != "" {
+		existingUser, _ := s.userRepo.FindByEmail(*req.Email)
+		if existingUser != nil {
+			return nil, errors.New("email is already registered")
 		}
 	}
 
+	// Auto-generate username from NPP (first 4 characters)
+	usernameVal := req.NPP
+	if len(req.NPP) >= 4 {
+		usernameVal = req.NPP[:4]
+	}
+	req.Username = &usernameVal
+
 	// Check if NPP already exists
-	if req.NPP != nil && *req.NPP != "" {
-		existingNppUser, _ := s.userRepo.FindByNPP(*req.NPP)
+	if req.NPP != "" {
+		existingNppUser, _ := s.userRepo.FindByNPP(req.NPP)
 		if existingNppUser != nil {
 			return nil, errors.New("NPP is already taken by another user")
 		}
@@ -240,15 +258,17 @@ func (s *authService) UpdateProfile(userID uuid.UUID, req models.ProfileUpdateRe
 	}
 
 	// Check NPP uniqueness if changing
-	if req.NPP != nil && *req.NPP != "" {
-		existingNppUser, _ := s.userRepo.FindByNPP(*req.NPP)
-		if existingNppUser != nil && existingNppUser.ID != userID {
-			return errors.New("NPP is already taken by another user")
-		}
+	if req.NPP == nil || *req.NPP == "" {
+		return errors.New("NPP is required")
+	}
+
+	existingNppUser, _ := s.userRepo.FindByNPP(*req.NPP)
+	if existingNppUser != nil && existingNppUser.ID != userID {
+		return errors.New("NPP is already taken by another user")
 	}
 
 	user.FullName = req.FullName
-	user.NPP = req.NPP
+	user.NPP = *req.NPP
 	user.AvatarURL = req.AvatarURL
 
 	// Password change logic

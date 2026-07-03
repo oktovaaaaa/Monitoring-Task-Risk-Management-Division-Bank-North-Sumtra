@@ -82,8 +82,11 @@ func SetupRouter(authHandler *handler.AuthHandler, taskHandler *handler.TaskHand
 		{
 			tasks.GET("", taskHandler.GetTasks)
 			tasks.POST("", middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin), taskHandler.CreateTask)
+			tasks.PUT("/:id", middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin), taskHandler.UpdateTask)
 			tasks.POST("/:id/submit", middleware.RequireRole(models.RoleEmployee), taskHandler.SubmitTask)
 			tasks.POST("/:id/review", middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin), taskHandler.ReviewTask)
+			tasks.POST("/subtasks/:subtaskId/submit", middleware.RequireRole(models.RoleEmployee), taskHandler.SubmitSubTask)
+			tasks.POST("/subtasks/:subtaskId/review", middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin), taskHandler.ReviewSubTask)
 			tasks.POST("/upload", taskHandler.UploadTaskFile)
 		}
 
