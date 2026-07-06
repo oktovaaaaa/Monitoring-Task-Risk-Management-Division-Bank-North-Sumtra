@@ -14,7 +14,7 @@ type TaskService interface {
 	CreateTask(title, description string, unitID uuid.UUID, subTasks []models.SubTask) error
 	UpdateTask(taskID uuid.UUID, title, description string, unitID uuid.UUID, subTasks []models.SubTask) error
 	GetTasks(userRole models.Role, userUnitID *uuid.UUID, filterUnitID *uuid.UUID) ([]models.Task, error)
-	SubmitTask(taskID, userID uuid.UUID, description, fileURL string) error
+	SubmitTask(taskID, userID uuid.UUID, description, fileURL, tableData string) error
 	ReviewTask(taskID, adminID uuid.UUID, action string, rejectionReason string) error
 	SubmitSubTask(subTaskID, userID uuid.UUID, linkValue, fileURL, tableData string) error
 	ReviewSubTask(subTaskID, adminID uuid.UUID, submissionID uuid.UUID, action string, rejectionReason string) error
@@ -198,7 +198,7 @@ func (s *taskService) GetTasks(userRole models.Role, userUnitID *uuid.UUID, filt
 	return s.taskRepo.FindAll()
 }
 
-func (s *taskService) SubmitTask(taskID, userID uuid.UUID, description, fileURL string) error {
+func (s *taskService) SubmitTask(taskID, userID uuid.UUID, description, fileURL, tableData string) error {
 	// Fetch task
 	task, err := s.taskRepo.FindByID(taskID)
 	if err != nil {
@@ -224,6 +224,7 @@ func (s *taskService) SubmitTask(taskID, userID uuid.UUID, description, fileURL 
 	now := time.Now()
 	task.SubmissionDescription = description
 	task.SubmissionFileURL = fileURL
+	task.SubmissionTableData = tableData
 	task.SubmittedByID = &userID
 	task.SubmittedAt = &now
 	task.Status = "pending"

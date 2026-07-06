@@ -8,6 +8,8 @@ interface ModalProps {
   children: React.ReactNode;
   showCloseButton?: boolean; // New prop to control close button visibility
   isFullscreen?: boolean; // Default to false for backwards compatibility
+  showFullscreenButton?: boolean;
+  onToggleFullscreen?: () => void;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -17,6 +19,8 @@ export const Modal: React.FC<ModalProps> = ({
   className,
   showCloseButton = true, // Default to true for backwards compatibility
   isFullscreen = false,
+  showFullscreenButton = false,
+  onToggleFullscreen,
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -67,6 +71,24 @@ export const Modal: React.FC<ModalProps> = ({
         className={`${contentClasses}  ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
+        {showFullscreenButton && onToggleFullscreen && (
+          <button
+            type="button"
+            onClick={onToggleFullscreen}
+            className="absolute right-14 top-3 z-999 flex h-9.5 w-9.5 items-center justify-center rounded-full bg-gray-100 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white sm:right-20 sm:top-6 sm:h-11 sm:w-11 cursor-pointer"
+            title={isFullscreen ? "Kecilkan Layar" : "Layar Penuh"}
+          >
+            {isFullscreen ? (
+              <svg className="w-5.5 h-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 10h6V4M20 10h-6V4M4 14h6v6M20 14h-6v6" />
+              </svg>
+            ) : (
+              <svg className="w-5.5 h-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4h4M16 4h4v4M4 16v4h4M16 20h4v-4" />
+              </svg>
+            )}
+          </button>
+        )}
         {showCloseButton && (
           <button
             onClick={onClose}

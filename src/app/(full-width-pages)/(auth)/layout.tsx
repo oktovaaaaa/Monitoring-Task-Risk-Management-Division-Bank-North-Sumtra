@@ -18,7 +18,7 @@ export default function AuthLayout({
             <div className="flex flex-col items-center justify-center w-full p-12">
               <Link href="/" className="block transition-transform hover:scale-105 duration-300">
                 <img
-                  src="/images/sumut.png"
+                  src="/images/sumut.png?v=1"
                   alt="Logo Sumut"
                   className="w-[280px] h-[280px] md:w-[350px] md:h-[350px] object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.3)]"
                 />

@@ -186,7 +186,8 @@ func (h *TaskHandler) GetTasks(c *gin.Context) {
 
 type SubmitTaskRequest struct {
 	SubmissionDescription string `json:"submission_description" binding:"required"`
-	SubmissionFileURL     string `json:"submission_file_url" binding:"required"`
+	SubmissionFileURL     string `json:"submission_file_url"`
+	SubmissionTableData   string `json:"submission_table_data"`
 }
 
 func (h *TaskHandler) SubmitTask(c *gin.Context) {
@@ -219,7 +220,7 @@ func (h *TaskHandler) SubmitTask(c *gin.Context) {
 		return
 	}
 
-	if err := h.taskService.SubmitTask(taskID, userID, req.SubmissionDescription, req.SubmissionFileURL); err != nil {
+	if err := h.taskService.SubmitTask(taskID, userID, req.SubmissionDescription, req.SubmissionFileURL, req.SubmissionTableData); err != nil {
 		c.JSON(http.StatusInternalServerError, models.CommonResponse{
 			Status:  "error",
 			Message: err.Error(),

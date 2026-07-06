@@ -82,6 +82,7 @@ type Task struct {
 	Status                string         `gorm:"type:varchar(20);not null;default:'open'" json:"status"` // open, pending, approved, rejected
 	SubmissionDescription string         `gorm:"type:text" json:"submission_description"`
 	SubmissionFileURL     string         `gorm:"type:text" json:"submission_file_url"`
+	SubmissionTableData   string         `gorm:"type:text" json:"submission_table_data"`
 	SubmittedByID         *uuid.UUID     `gorm:"type:uuid" json:"submitted_by_id"`
 	SubmittedBy           *User          `gorm:"foreignKey:SubmittedByID" json:"submitted_by,omitempty"`
 	SubmittedAt           *time.Time     `json:"submitted_at"`

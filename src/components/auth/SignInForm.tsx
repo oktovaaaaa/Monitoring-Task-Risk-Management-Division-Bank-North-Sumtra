@@ -95,13 +95,8 @@ export default function SignInForm() {
   return (
     <div className="flex flex-col flex-1 lg:w-1/2 w-full px-4 sm:px-6">
       <div className="w-full max-w-md sm:pt-4 mx-auto mb-2">
-        <Link
-          href="/"
-          className="inline-flex items-center text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-        >
-          <ChevronLeftIcon />
-          Back to dashboard
-        </Link>
+
+
       </div>
       <div className="flex flex-col justify-center flex-1 w-full max-w-md mx-auto py-2">
         <div>

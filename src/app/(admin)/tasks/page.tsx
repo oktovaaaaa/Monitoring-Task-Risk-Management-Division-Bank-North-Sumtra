@@ -53,6 +53,7 @@ interface Task {
   status: "open" | "pending" | "approved" | "rejected";
   submission_description?: string;
   submission_file_url?: string;
+  submission_table_data?: string;
   submitted_by_id?: string;
   submitted_by?: User;
   submitted_at?: string;
@@ -70,6 +71,12 @@ interface TableDataPayload {
   rows: string[][];
 }
 
+interface SheetData {
+  name: string;
+  columns: string[];
+  rows: string[][];
+}
+
 function TableEditor({
   initialData,
   disabled
@@ -78,8 +85,10 @@ function TableEditor({
   disabled?: boolean;
 }) {
   const [subtitle, setSubtitle] = useState("");
-  const [columns, setColumns] = useState<string[]>(["Kolom 1", "Kolom 2"]);
-  const [rows, setRows] = useState<string[][]>([["", ""]]);
+  const [sheets, setSheets] = useState<SheetData[]>([
+    { name: "Sheet 1", columns: ["Kolom 1", "Kolom 2"], rows: [["", ""]] }
+  ]);
+  const [activeSheetIdx, setActiveSheetIdx] = useState(0);
   const [showRowNumbers, setShowRowNumbers] = useState(true);
 
   useEffect(() => {
@@ -87,14 +96,28 @@ function TableEditor({
       try {
         const parsed = JSON.parse(initialData);
         setSubtitle(parsed.subtitle || "");
-        setColumns(parsed.columns || ["Kolom 1", "Kolom 2"]);
-        setRows(parsed.rows || [["", ""]]);
         setShowRowNumbers(parsed.showRowNumbers !== false);
+        
+        if (parsed.sheets && parsed.sheets.length > 0) {
+          setSheets(parsed.sheets);
+          setActiveSheetIdx(0);
+        } else if (parsed.columns && parsed.rows) {
+          setSheets([{
+            name: "Sheet 1",
+            columns: parsed.columns,
+            rows: parsed.rows
+          }]);
+          setActiveSheetIdx(0);
+        }
       } catch (e) {
         console.error(e);
       }
     }
   }, [initialData]);
+
+  const currentSheet = sheets[activeSheetIdx] || sheets[0] || { name: "Sheet 1", columns: ["Kolom 1"], rows: [[""]] };
+  const currentColumns = currentSheet.columns;
+  const currentRows = currentSheet.rows;
 
   return (
     <div className="space-y-3">
@@ -103,20 +126,40 @@ function TableEditor({
           Sub-judul: {subtitle}
         </div>
       )}
-      <div className="overflow-x-auto rounded-lg border border-gray-150 dark:border-gray-800">
+      
+      {sheets.length > 1 && (
+        <div className="flex flex-wrap gap-1 border-b border-gray-250 dark:border-gray-800 pb-1.5 mb-2">
+          {sheets.map((sheet, sIdx) => (
+            <button
+              key={sIdx}
+              type="button"
+              onClick={() => setActiveSheetIdx(sIdx)}
+              className={`px-2.5 py-1 text-[10px] sm:text-xs font-bold rounded-md cursor-pointer transition select-none ${
+                activeSheetIdx === sIdx
+                  ? "bg-brand-500 text-white shadow-theme-xs"
+                  : "bg-gray-100 hover:bg-gray-200 text-gray-650 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              }`}
+            >
+              {sheet.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-800">
         <table className="min-w-full divide-y divide-gray-150 dark:divide-gray-850 text-left text-xs">
-          <thead className="bg-gray-50 dark:bg-gray-900/60 text-gray-500 dark:text-gray-400 font-bold">
+          <thead className="bg-gray-50 dark:bg-gray-900/60 text-gray-505 dark:text-gray-400 font-bold">
             <tr>
               {showRowNumbers && (
                 <th className="px-3 py-2 border-r border-gray-150 dark:border-gray-800 w-12 text-center">No</th>
               )}
-              {columns.map((col, idx) => (
+              {currentColumns.map((col, idx) => (
                 <th key={idx} className="px-3 py-2 border-r border-gray-150 dark:border-gray-800 last:border-0">{col}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800 bg-transparent text-gray-800 dark:text-gray-200">
-            {rows.map((row, rIdx) => (
+            {currentRows.map((row, rIdx) => (
               <tr key={rIdx}>
                 {showRowNumbers && (
                   <td className="px-3 py-2 border-r border-gray-150 dark:border-gray-800 text-center font-semibold text-gray-400 dark:text-gray-500 bg-gray-50/30 dark:bg-transparent w-12">
@@ -167,6 +210,7 @@ export default function TasksAdminPage() {
 
   // Review states (Review Modal)
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [isModalFullscreen, setIsModalFullscreen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
@@ -677,6 +721,21 @@ export default function TasksAdminPage() {
     );
   }
 
+  const adminFilteredTasks = selectedFilterUnit === "all"
+    ? tasks
+    : tasks.filter((t) => t.unit_id === selectedFilterUnit);
+
+  const adminTotalTasks = adminFilteredTasks.length;
+  const adminCompletedTasks = adminFilteredTasks.filter((t) => t.status === "approved").length;
+  const adminProgressSum = adminFilteredTasks.reduce((sum, t) => sum + getTaskProgress(t), 0);
+  const adminCompletionPercentage = adminTotalTasks > 0
+    ? Math.round(adminProgressSum / adminTotalTasks)
+    : 0;
+
+  const selectedUnitName = selectedFilterUnit === "all"
+    ? "Semua Divisi / Unit"
+    : units.find((u) => u.id === selectedFilterUnit)?.name || "Unit Terpilih";
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Page Header */}
@@ -701,6 +760,47 @@ export default function TasksAdminPage() {
           </button>
         </div>
       </div>
+
+      {/* Progress Unit Card */}
+      {adminTotalTasks > 0 && (
+        <div className="bg-gradient-to-r from-brand-500 to-blue-600 dark:from-brand-600 dark:to-blue-700 text-white rounded-3xl p-6 shadow-md relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6 animate-fade-in">
+          <div className="space-y-2 relative z-10">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white uppercase tracking-wider">
+              Monitor Progres Unit
+            </span>
+            <h2 className="text-xl font-bold">
+              {selectedFilterUnit === "all" ? "Seluruh Divisi & Unit Kerja" : `Divisi Unit: ${selectedUnitName}`}
+            </h2>
+            <p className="text-xs text-white/80 max-w-md">
+              {selectedFilterUnit === "all"
+                ? `Secara keseluruhan, telah diselesaikan ${adminCompletedTasks} dari total ${adminTotalTasks} tugas kelompok yang didelegasikan.`
+                : `Divisi ${selectedUnitName} telah menyelesaikan ${adminCompletedTasks} dari total ${adminTotalTasks} tugas kelompok.`
+              }
+            </p>
+          </div>
+
+          <div className="w-full md:w-72 space-y-2 relative z-10 flex-shrink-0">
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span>Penyelesaian Tugas</span>
+              <span className="text-sm font-extrabold">{adminCompletionPercentage}%</span>
+            </div>
+            {/* Progress bar container */}
+            <div className="w-full h-3 rounded-full bg-white/20 overflow-hidden">
+              <div
+                style={{ width: `${adminCompletionPercentage}%` }}
+                className="h-full rounded-full bg-white transition-all duration-500"
+              ></div>
+            </div>
+            <div className="text-[10px] text-white/70 text-right">
+              {adminCompletedTasks} / {adminTotalTasks} Tugas Selesai
+            </div>
+          </div>
+
+          {/* Decorative background blurs */}
+          <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-white/10 blur-2xl pointer-events-none"></div>
+          <div className="absolute -bottom-8 -left-8 h-24 w-24 rounded-full bg-white/5 blur-xl pointer-events-none"></div>
+        </div>
+      )}
 
       <div className="animate-fade-in">
         {/* Full-width: Tasks Table */}
@@ -821,6 +921,14 @@ export default function TasksAdminPage() {
                               Lihat Detail
                             </button>
                           )}
+                          {(task.status === "open" || task.status === "rejected") && task.sub_tasks && task.sub_tasks.length > 0 && (
+                            <button
+                              onClick={() => openReviewModal(task)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 rounded-lg shadow-theme-xs transition cursor-pointer"
+                            >
+                              Lihat Detail
+                            </button>
+                          )}
 
                           <button
                             onClick={() => openEditModal(task)}
@@ -844,8 +952,20 @@ export default function TasksAdminPage() {
       {/* Modal: Tinjau Laporan (Review) */}
       <Modal
         isOpen={isReviewModalOpen}
-        onClose={() => setIsReviewModalOpen(false)}
-        className={selectedTask?.sub_tasks && selectedTask.sub_tasks.length > 0 ? "max-w-[750px] w-full p-6 max-h-[85vh] overflow-y-auto" : "max-w-[550px] p-6"}
+        onClose={() => {
+          setIsReviewModalOpen(false);
+          setIsModalFullscreen(false);
+        }}
+        isFullscreen={isModalFullscreen}
+        showFullscreenButton={true}
+        onToggleFullscreen={() => setIsModalFullscreen(!isModalFullscreen)}
+        className={
+          isModalFullscreen
+            ? "w-screen h-screen max-w-full m-0 p-6 overflow-y-auto rounded-none bg-white dark:bg-gray-900"
+            : selectedTask?.sub_tasks && selectedTask.sub_tasks.length > 0
+            ? "max-w-[750px] w-full p-6 max-h-[85vh] overflow-y-auto"
+            : "max-w-[550px] p-6"
+        }
       >
         <div className="space-y-4">
           <div className="border-b pb-3 dark:border-gray-800 pr-10 sm:pr-14">
@@ -858,6 +978,45 @@ export default function TasksAdminPage() {
                 : "Periksa deskripsi laporan pengerjaan dan berkas yang dikirim sebelum menyetujui."}
             </p>
           </div>
+
+          {/* Subtask Progress Checklist */}
+          {selectedTask?.sub_tasks && selectedTask.sub_tasks.length > 0 && (
+            <div className="p-3.5 bg-gray-50/70 dark:bg-white/[0.02] border border-gray-150 dark:border-gray-800 rounded-2xl space-y-2">
+              <span className="block text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">Daftar Sub-Tugas (Checklist Progres)</span>
+              <div className="flex flex-col gap-1.5">
+                {selectedTask.sub_tasks.map((st) => {
+                  const activeSub = st.submissions?.find(
+                    (s) => s.status === "pending" || s.status === "approved" || s.status === "rejected"
+                  );
+                  const isCompleted = activeSub?.status === "approved";
+                  const isPending = activeSub?.status === "pending";
+
+                  return (
+                    <div key={st.id} className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-900 border border-gray-150 dark:border-gray-800 rounded-xl shadow-theme-xs min-w-0">
+                      {isCompleted ? (
+                        <div className="flex-shrink-0 w-4.5 h-4.5 text-success-500 bg-success-50 dark:bg-success-500/10 rounded-full flex items-center justify-center">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                      ) : isPending ? (
+                        <div className="flex-shrink-0 w-4.5 h-4.5 text-warning-500 bg-warning-50 dark:bg-warning-500/10 rounded-full flex items-center justify-center animate-pulse" title="Menunggu Review">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3" />
+                          </svg>
+                        </div>
+                      ) : (
+                        <div className="flex-shrink-0 w-4.5 h-4.5 border border-gray-300 dark:border-gray-700 rounded-md"></div>
+                      )}
+                      <span className={`text-xs font-bold truncate ${isCompleted ? "text-gray-400 dark:text-gray-505 line-through font-normal" : "text-gray-800 dark:text-gray-250"}`} title={st.title}>
+                        {st.title}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {selectedTask?.sub_tasks && selectedTask.sub_tasks.length > 0 ? (
             <div className="space-y-6">
@@ -1051,6 +1210,15 @@ export default function TasksAdminPage() {
                     {selectedTask?.submission_description || "Karyawan tidak menyertakan deskripsi laporan."}
                   </div>
                 </div>
+                {selectedTask?.submission_table_data && (
+                  <div className="border-t border-gray-100 dark:border-gray-800/80 pt-3">
+                    <div className="text-xs text-gray-400 font-bold uppercase tracking-wider">Tabel Hasil Kerja</div>
+                    <div className="mt-1.5">
+                      <TableEditor disabled={true} initialData={selectedTask.submission_table_data} />
+                    </div>
+                  </div>
+                )}
+
                 <div className="border-t border-gray-100 dark:border-gray-800/80 pt-3">
                   <div className="text-xs text-gray-400 font-bold uppercase tracking-wider">Lampiran Berkas</div>
                   <div className="mt-1.5">

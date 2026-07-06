@@ -4,6 +4,7 @@ import Label from "@/components/form/Label";
 import Button from "@/components/ui/button/Button";
 import Link from "next/link";
 import { Modal } from "@/components/ui/modal";
+import * as XLSX from "xlsx";
 
 interface Unit {
   id: string;
@@ -51,6 +52,7 @@ interface Task {
   status: "open" | "pending" | "approved" | "rejected";
   submission_description?: string;
   submission_file_url?: string;
+  submission_table_data?: string;
   submitted_by_id?: string;
   submitted_by?: User;
   submitted_at?: string;
@@ -69,6 +71,12 @@ interface TableDataPayload {
   rows: string[][];
 }
 
+interface SheetData {
+  name: string;
+  columns: string[];
+  rows: string[][];
+}
+
 function TableEditor({
   initialData,
   onSubmit,
@@ -79,67 +87,152 @@ function TableEditor({
   disabled?: boolean;
 }) {
   const [subtitle, setSubtitle] = useState("");
-  const [columns, setColumns] = useState<string[]>(["Kolom 1", "Kolom 2"]);
-  const [rows, setRows] = useState<string[][]>([["", ""]]);
+  const [sheets, setSheets] = useState<SheetData[]>([
+    { name: "Sheet 1", columns: ["Kolom 1", "Kolom 2"], rows: [["", ""]] }
+  ]);
+  const [activeSheetIdx, setActiveSheetIdx] = useState(0);
   const [showRowNumbers, setShowRowNumbers] = useState(true);
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const dataBytes = evt.target?.result;
+        if (!dataBytes) return;
+        const workbook = XLSX.read(dataBytes, { type: "array" });
+        
+        const importedSheets: SheetData[] = [];
+        workbook.SheetNames.forEach((sheetName) => {
+          const worksheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
+          
+          if (jsonData.length > 0) {
+            const rawCols = jsonData[0];
+            const parsedCols = rawCols.map((col: any, idx: number) => {
+              const colStr = col !== null && col !== undefined ? col.toString().trim() : "";
+              return colStr || `Kolom ${idx + 1}`;
+            });
+
+            const rawRows = jsonData.slice(1);
+            const parsedRows = rawRows.map((row: any[]) => {
+              const newRow = Array(parsedCols.length).fill("");
+              for (let i = 0; i < parsedCols.length; i++) {
+                if (row && row[i] !== undefined && row[i] !== null) {
+                  newRow[i] = row[i].toString();
+                }
+              }
+              return newRow;
+            });
+
+            importedSheets.push({
+              name: sheetName,
+              columns: parsedCols.length > 0 ? parsedCols : ["Kolom 1", "Kolom 2"],
+              rows: parsedRows.length > 0 ? parsedRows : [Array(parsedCols.length).fill("")]
+            });
+          }
+        });
+
+        if (importedSheets.length > 0) {
+          setSheets(importedSheets);
+          setActiveSheetIdx(0);
+        }
+      } catch (err: any) {
+        console.error("Gagal memproses file Excel:", err);
+        alert("Gagal membaca berkas Excel. Pastikan format file benar (.xlsx atau .xls).");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = "";
+  };
 
   useEffect(() => {
     if (initialData) {
       try {
         const parsed = JSON.parse(initialData);
         setSubtitle(parsed.subtitle || "");
-        setColumns(parsed.columns || ["Kolom 1", "Kolom 2"]);
-        setRows(parsed.rows || [["", ""]]);
         setShowRowNumbers(parsed.showRowNumbers !== false);
+        
+        if (parsed.sheets && parsed.sheets.length > 0) {
+          setSheets(parsed.sheets);
+          setActiveSheetIdx(0);
+        } else if (parsed.columns && parsed.rows) {
+          setSheets([{
+            name: "Sheet 1",
+            columns: parsed.columns,
+            rows: parsed.rows
+          }]);
+          setActiveSheetIdx(0);
+        }
       } catch (e) {
         console.error(e);
       }
     }
   }, [initialData]);
 
+  const currentSheet = sheets[activeSheetIdx] || sheets[0] || { name: "Sheet 1", columns: ["Kolom 1"], rows: [[""]] };
+  const currentColumns = currentSheet.columns;
+  const currentRows = currentSheet.rows;
+
   const handleAddColumn = () => {
-    setColumns([...columns, `Kolom ${columns.length + 1}`]);
-    setRows(rows.map(row => [...row, ""]));
+    const nextSheets = [...sheets];
+    const current = nextSheets[activeSheetIdx];
+    current.columns = [...current.columns, `Kolom ${current.columns.length + 1}`];
+    current.rows = current.rows.map(row => [...row, ""]);
+    setSheets(nextSheets);
   };
 
   const handleRemoveColumn = (colIdx: number) => {
-    if (columns.length <= 1) return;
-    setColumns(columns.filter((_, idx) => idx !== colIdx));
-    setRows(rows.map(row => row.filter((_, idx) => idx !== colIdx)));
+    const nextSheets = [...sheets];
+    const current = nextSheets[activeSheetIdx];
+    if (current.columns.length <= 1) return;
+    current.columns = current.columns.filter((_, idx) => idx !== colIdx);
+    current.rows = current.rows.map(row => row.filter((_, idx) => idx !== colIdx));
+    setSheets(nextSheets);
   };
 
   const handleColumnHeaderChange = (colIdx: number, val: string) => {
-    const nextCols = [...columns];
-    nextCols[colIdx] = val;
-    setColumns(nextCols);
+    const nextSheets = [...sheets];
+    const current = nextSheets[activeSheetIdx];
+    current.columns[colIdx] = val;
+    setSheets(nextSheets);
   };
 
   const handleAddRow = () => {
-    setRows([...rows, Array(columns.length).fill("")]);
+    const nextSheets = [...sheets];
+    const current = nextSheets[activeSheetIdx];
+    current.rows = [...current.rows, Array(current.columns.length).fill("")];
+    setSheets(nextSheets);
   };
 
   const handleRemoveRow = (rowIdx: number) => {
-    if (rows.length <= 1) return;
-    setRows(rows.filter((_, idx) => idx !== rowIdx));
+    const nextSheets = [...sheets];
+    const current = nextSheets[activeSheetIdx];
+    if (current.rows.length <= 1) return;
+    current.rows = current.rows.filter((_, idx) => idx !== rowIdx);
+    setSheets(nextSheets);
   };
 
   const handleCellChange = (rowIdx: number, colIdx: number, val: string) => {
-    const nextRows = rows.map((row, rIdx) => {
+    const nextSheets = [...sheets];
+    const current = nextSheets[activeSheetIdx];
+    current.rows = current.rows.map((row, rIdx) => {
       if (rIdx !== rowIdx) return row;
       const nextRow = [...row];
       nextRow[colIdx] = val;
       return nextRow;
     });
-    setRows(nextRows);
+    setSheets(nextSheets);
   };
 
   const handleSave = () => {
     if (!onSubmit) return;
-    const payload: TableDataPayload = {
+    const payload = {
       subtitle,
       showRowNumbers,
-      columns,
-      rows
+      sheets
     };
     onSubmit(JSON.stringify(payload));
   };
@@ -148,24 +241,44 @@ function TableEditor({
     return (
       <div className="space-y-3">
         {subtitle && (
-          <div className="text-xs font-bold text-gray-700 dark:text-gray-300">
+          <div className="text-xs font-bold text-gray-750 dark:text-gray-300">
             Sub-judul: {subtitle}
           </div>
         )}
+        
+        {sheets.length > 1 && (
+          <div className="flex flex-wrap gap-1 border-b border-gray-250 dark:border-gray-800 pb-1.5 mb-2">
+            {sheets.map((sheet, sIdx) => (
+              <button
+                key={sIdx}
+                type="button"
+                onClick={() => setActiveSheetIdx(sIdx)}
+                className={`px-2.5 py-1 text-[10px] sm:text-xs font-bold rounded-md cursor-pointer transition select-none ${
+                  activeSheetIdx === sIdx
+                    ? "bg-brand-500 text-white shadow-theme-xs"
+                    : "bg-gray-100 hover:bg-gray-200 text-gray-650 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                }`}
+              >
+                {sheet.name}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-800">
           <table className="min-w-full divide-y divide-gray-150 dark:divide-gray-850 text-left text-xs">
-            <thead className="bg-gray-50 dark:bg-gray-900/60 text-gray-500 dark:text-gray-400 font-bold">
+            <thead className="bg-gray-55 dark:bg-gray-900/60 text-gray-500 dark:text-gray-400 font-bold">
               <tr>
                 {showRowNumbers && (
                   <th className="px-3 py-2 border-r border-gray-150 dark:border-gray-800 w-12 text-center">No</th>
                 )}
-                {columns.map((col, idx) => (
+                {currentColumns.map((col, idx) => (
                   <th key={idx} className="px-3 py-2 border-r border-gray-150 dark:border-gray-800 last:border-0">{col}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800 bg-transparent text-gray-800 dark:text-gray-200">
-              {rows.map((row, rIdx) => (
+              {currentRows.map((row, rIdx) => (
                 <tr key={rIdx}>
                   {showRowNumbers && (
                     <td className="px-3 py-2 border-r border-gray-150 dark:border-gray-800 text-center font-semibold text-gray-400 dark:text-gray-500 bg-gray-50/30 dark:bg-transparent w-12">
@@ -187,7 +300,7 @@ function TableEditor({
   return (
     <div className="space-y-4 p-4 border border-gray-200 dark:border-gray-800 rounded-xl bg-gray-50/50 dark:bg-white/[0.01]">
       <div className="space-y-1">
-        <label className="text-xs font-bold text-gray-705 dark:text-gray-300">Sub-judul Tabel (Opsional)</label>
+        <label className="text-xs font-bold text-gray-750 dark:text-gray-300">Sub-judul Tabel (Opsional)</label>
         <input
           type="text"
           value={subtitle}
@@ -197,9 +310,52 @@ function TableEditor({
         />
       </div>
 
+      <div className="flex flex-wrap gap-1.5 border-b border-gray-200 dark:border-gray-700 pb-2 items-center">
+        {sheets.map((sheet, sIdx) => (
+          <div key={sIdx} className="flex items-center group">
+            <button
+              type="button"
+              onClick={() => setActiveSheetIdx(sIdx)}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition select-none ${
+                activeSheetIdx === sIdx
+                  ? "bg-brand-500 text-white shadow-theme-xs"
+                  : "bg-gray-100 hover:bg-gray-200 text-gray-650 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-750"
+              }`}
+            >
+              {sheet.name}
+            </button>
+            {sheets.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const nextSheets = sheets.filter((_, idx) => idx !== sIdx);
+                  setSheets(nextSheets);
+                  setActiveSheetIdx(0);
+                }}
+                className="ml-0.5 text-gray-400 hover:text-error-500 text-xs font-bold px-1 transition opacity-0 group-hover:opacity-100 cursor-pointer"
+                title="Hapus Sheet"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => {
+            const nextSheets = [...sheets, { name: `Sheet ${sheets.length + 1}`, columns: ["Kolom 1", "Kolom 2"], rows: [["", ""]] }];
+            setSheets(nextSheets);
+            setActiveSheetIdx(sheets.length);
+          }}
+          className="px-2.5 py-1.5 text-[10px] font-bold text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-md border border-brand-100 dark:bg-brand-500/10 dark:text-brand-400 dark:border-brand-500/20 cursor-pointer"
+        >
+          + Tambah Sheet
+        </button>
+      </div>
+
       <div className="space-y-2">
         <div className="flex justify-between items-center">
-          <label className="text-xs font-bold text-gray-705 dark:text-gray-300">Desain & Isi Tabel</label>
+          <label className="text-xs font-bold text-gray-705 dark:text-gray-300">Desain & Isi Tabel ({currentSheet.name})</label>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-1.5 text-[10px] sm:text-xs font-semibold text-gray-600 dark:text-gray-400 select-none cursor-pointer">
               <input
@@ -224,6 +380,18 @@ function TableEditor({
             >
               + Baris
             </button>
+            <label className="px-2 py-1 text-[10px] font-bold text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-md border border-brand-100 dark:bg-brand-500/10 dark:text-brand-400 dark:border-brand-500/20 cursor-pointer inline-flex items-center gap-1 select-none">
+              <svg className="w-3.5 h-3.5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Impor Excel
+              <input
+                type="file"
+                accept=".xlsx, .xls"
+                onChange={handleImportExcel}
+                className="hidden"
+              />
+            </label>
           </div>
         </div>
 
@@ -236,7 +404,7 @@ function TableEditor({
                     No
                   </th>
                 )}
-                {columns.map((col, idx) => (
+                {currentColumns.map((col, idx) => (
                   <th key={idx} className="px-2 py-1.5 border-r border-gray-200 dark:border-gray-700 last:border-0 min-w-[120px]">
                     <div className="flex items-center gap-1">
                       <input
@@ -245,7 +413,7 @@ function TableEditor({
                         onChange={(e) => handleColumnHeaderChange(idx, e.target.value)}
                         className="w-full bg-transparent font-bold focus:outline-hidden border-b border-dashed border-gray-300 dark:border-gray-600 text-gray-800 dark:text-white"
                       />
-                      {columns.length > 1 && (
+                      {currentColumns.length > 1 && (
                         <button
                           type="button"
                           onClick={() => handleRemoveColumn(idx)}
@@ -262,10 +430,10 @@ function TableEditor({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-transparent">
-              {rows.map((row, rIdx) => (
+              {currentRows.map((row, rIdx) => (
                 <tr key={rIdx}>
                   {showRowNumbers && (
-                    <td className="px-2 py-1.5 border-r border-gray-200 dark:border-gray-700 text-center font-semibold text-gray-400 dark:text-gray-500 bg-gray-50/20 dark:bg-transparent w-12">
+                    <td className="px-2 py-1.5 border-r border-gray-200 dark:border-gray-700 text-center font-semibold text-gray-400 dark:text-gray-505 bg-gray-50/20 dark:bg-transparent w-12">
                       {rIdx + 1}
                     </td>
                   )}
@@ -281,7 +449,7 @@ function TableEditor({
                     </td>
                   ))}
                   <td className="px-2 py-1.5 text-center">
-                    {rows.length > 1 && (
+                    {currentRows.length > 1 && (
                       <button
                         type="button"
                         onClick={() => handleRemoveRow(rIdx)}
@@ -332,6 +500,7 @@ export default function MyTasksEmployeePage() {
   const [fileName, setFileName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
+  const [formTableData, setFormTableData] = useState("");
 
   // Subtask local inputs states
   const [linkInputs, setLinkInputs] = useState<Record<string, string>>({});
@@ -351,6 +520,7 @@ export default function MyTasksEmployeePage() {
 
   // Detail Modal states
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isModalFullscreen, setIsModalFullscreen] = useState(false);
 
   const openDetailModal = (task: Task) => {
     setSelectedTask(task);
@@ -530,6 +700,70 @@ export default function MyTasksEmployeePage() {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
     
+    // Check if file is Excel or CSV
+    const isExcelOrCsv = file.name.endsWith(".xlsx") || file.name.endsWith(".xls") || file.name.endsWith(".csv");
+    if (isExcelOrCsv) {
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          const dataBytes = evt.target?.result;
+          if (!dataBytes) return;
+          const workbook = XLSX.read(dataBytes, { type: "array" });
+          
+          const importedSheets: SheetData[] = [];
+          workbook.SheetNames.forEach((sheetName) => {
+            const worksheet = workbook.Sheets[sheetName];
+            const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
+            
+            if (jsonData.length > 0) {
+              const rawCols = jsonData[0];
+              const parsedCols = rawCols.map((col: any, idx: number) => {
+                const colStr = col !== null && col !== undefined ? col.toString().trim() : "";
+                return colStr || `Kolom ${idx + 1}`;
+              });
+
+              const rawRows = jsonData.slice(1);
+              const parsedRows = rawRows.map((row: any[]) => {
+                const newRow = Array(parsedCols.length).fill("");
+                for (let i = 0; i < parsedCols.length; i++) {
+                  if (row && row[i] !== undefined && row[i] !== null) {
+                    newRow[i] = row[i].toString();
+                  }
+                }
+                return newRow;
+              });
+
+              importedSheets.push({
+                name: sheetName,
+                columns: parsedCols.length > 0 ? parsedCols : ["Kolom 1", "Kolom 2"],
+                rows: parsedRows.length > 0 ? parsedRows : [Array(parsedCols.length).fill("")]
+              });
+            }
+          });
+
+          if (importedSheets.length > 0) {
+            const tablePayload = {
+              subtitle: file.name.replace(/\.[^/.]+$/, ""), // file name without extension
+              showRowNumbers: true,
+              sheets: importedSheets
+            };
+
+            setFormTableData(JSON.stringify(tablePayload));
+            setSelectedFile(null);
+            setFileUrl("");
+            setFileName("");
+            showPopup("success", `Berkas Excel/CSV "${file.name}" dengan ${importedSheets.length} sheet berhasil diubah menjadi tabel!`);
+          }
+        } catch (err: any) {
+          console.error("Gagal memproses file Excel:", err);
+          showPopup("error", "Gagal membaca berkas Excel. Pastikan format file benar (.xlsx, .xls, atau .csv).");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = "";
+      return;
+    }
+
     // 1. Enforce size validation (max 25MB)
     const maxFileSize = 25 * 1024 * 1024; // 25MB
     if (file.size > maxFileSize) {
@@ -560,6 +794,7 @@ export default function MyTasksEmployeePage() {
 
       setFileUrl(result.data.file_url);
       setFileName(result.data.file_name);
+      setFormTableData(""); // clear table if file is uploaded
       showPopup("success", "Berkas laporan berhasil diunggah!");
     } catch (err: any) {
       showPopup("error", err.message || "Gagal mengunggah berkas ke server.");
@@ -575,6 +810,7 @@ export default function MyTasksEmployeePage() {
     setSubDescription(task.submission_description || "");
     setFileUrl(task.submission_file_url || "");
     setFileName(task.submission_file_url ? task.submission_file_url.split("/").pop() || "Lampiran Berkas" : "");
+    setFormTableData(task.submission_table_data || "");
     setSelectedFile(null);
     setIsSubmitModalOpen(true);
   };
@@ -587,8 +823,8 @@ export default function MyTasksEmployeePage() {
       showPopup("error", "Deskripsi laporan pengerjaan wajib diisi.");
       return;
     }
-    if (!fileUrl) {
-      showPopup("error", "Anda harus mengunggah berkas laporan tugas terlebih dahulu.");
+    if (!fileUrl && !formTableData) {
+      showPopup("error", "Anda harus mengunggah berkas laporan atau mengimpor tabel terlebih dahulu.");
       return;
     }
     setSubmitLoading(true);
@@ -603,6 +839,7 @@ export default function MyTasksEmployeePage() {
         body: JSON.stringify({
           submission_description: subDescription,
           submission_file_url: fileUrl,
+          submission_table_data: formTableData,
         }),
       });
 
@@ -887,53 +1124,72 @@ export default function MyTasksEmployeePage() {
                 />
               </div>
 
-              <div>
-                <Label>Unggah Berkas Laporan Kerja (Max 25MB) <span className="text-error-500">*</span></Label>
-                
-                <div className="mt-1 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-2xl p-6 text-center hover:border-brand-500 dark:hover:border-brand-600 transition cursor-pointer relative bg-gray-50/50 dark:bg-white/[0.01]">
-                  <input
-                    type="file"
-                    onChange={handleFileChange}
-                    disabled={uploading}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              {formTableData ? (
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <Label>Tabel Hasil Kerja (Hasil Ekstraksi Excel/CSV)</Label>
+                    <button
+                      type="button"
+                      onClick={() => setFormTableData("")}
+                      className="text-xs text-error-600 hover:underline cursor-pointer"
+                    >
+                      Hapus Tabel & Gunakan File Lain
+                    </button>
+                  </div>
+                  <TableEditor
+                    initialData={formTableData}
+                    onSubmit={(updatedData) => setFormTableData(updatedData)}
                   />
-                  
-                  {uploading ? (
-                    <div className="space-y-2">
-                      <div className="animate-spin rounded-full h-8 w-8 border-3 border-brand-500 border-t-transparent mx-auto"></div>
-                      <p className="text-xs text-gray-550">Sedang mengunggah berkas... </p>
-                    </div>
-                  ) : selectedFile || fileUrl ? (
-                    <div className="space-y-2">
-                      <div className="w-10 h-10 bg-brand-50 dark:bg-brand-500/10 text-brand-500 rounded-full flex items-center justify-center mx-auto">
-                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                      </div>
-                      <div className="text-xs font-bold text-gray-900 dark:text-white truncate max-w-[300px]">
-                        {fileName || "Berkas Laporan"}
-                      </div>
-                      <div className="text-[10px] text-brand-600 font-semibold">
-                        Ubah Berkas (Klik / Seret berkas baru)
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="w-10 h-10 bg-gray-100 dark:bg-gray-850 text-gray-400 rounded-full flex items-center justify-center mx-auto">
-                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                      </div>
-                      <p className="text-xs font-semibold text-gray-650 dark:text-gray-300">
-                        Klik untuk memilih berkas atau seret ke sini
-                      </p>
-                      <p className="text-[10px] text-gray-400">
-                        Semua format didukung (maksimal ukuran 25MB)
-                      </p>
-                    </div>
-                  )}
                 </div>
-              </div>
+              ) : (
+                <div>
+                  <Label>Unggah Berkas Laporan Kerja (Max 25MB) <span className="text-error-500">*</span></Label>
+                  
+                  <div className="mt-1 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-2xl p-6 text-center hover:border-brand-500 dark:hover:border-brand-600 transition cursor-pointer relative bg-gray-50/50 dark:bg-white/[0.01]">
+                    <input
+                      type="file"
+                      onChange={handleFileChange}
+                      disabled={uploading}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    
+                    {uploading ? (
+                      <div className="space-y-2">
+                        <div className="animate-spin rounded-full h-8 w-8 border-3 border-brand-500 border-t-transparent mx-auto"></div>
+                        <p className="text-xs text-gray-550">Sedang mengunggah berkas... </p>
+                      </div>
+                    ) : selectedFile || fileUrl ? (
+                      <div className="space-y-2">
+                        <div className="w-10 h-10 bg-brand-50 dark:bg-brand-500/10 text-brand-500 rounded-full flex items-center justify-center mx-auto">
+                          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                        </div>
+                        <div className="text-xs font-bold text-gray-900 dark:text-white truncate max-w-[300px]">
+                          {fileName || "Berkas Laporan"}
+                        </div>
+                        <div className="text-[10px] text-brand-600 font-semibold">
+                          Ubah Berkas (Klik / Seret berkas baru)
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="w-10 h-10 bg-gray-100 dark:bg-gray-850 text-gray-400 rounded-full flex items-center justify-center mx-auto">
+                          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                        </div>
+                        <p className="text-xs font-semibold text-gray-650 dark:text-gray-300">
+                          Klik untuk memilih berkas atau seret ke sini
+                        </p>
+                        <p className="text-[10px] text-gray-400">
+                          Semua format didukung (Unggah file Excel/CSV untuk otomatis dikonversi ke Tabel)
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-3 pt-3 border-t dark:border-gray-800">
                 <button
@@ -957,6 +1213,12 @@ export default function MyTasksEmployeePage() {
     );
   }
 
+  const totalTasks = tasks.length;
+  const completedTasks = tasks.filter((t) => t.status === "approved").length;
+  const totalTasksProgressSum = tasks.reduce((sum, t) => sum + getTaskProgress(t), 0);
+  const completionPercentage =
+    totalTasks > 0 ? Math.round(totalTasksProgressSum / totalTasks) : 0;
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Page Header */}
@@ -965,9 +1227,47 @@ export default function MyTasksEmployeePage() {
           Tugas Unit Saya
         </h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Daftar tugas kelompok untuk unit Anda (<strong className="font-bold text-gray-800 dark:text-white">{currentUser.unit?.name || "Belum ditentukan"}</strong>). Tugas yang diselesaikan oleh salah satu rekan satu unit akan terselesaikan secara kolektif.
+          Daftar tugas kelompok untuk unit Anda (<strong className="font-bold text-gray-800 dark:text-white">{currentUser?.unit?.name || "Belum ditentukan"}</strong>). Tugas yang diselesaikan oleh salah satu rekan satu unit akan terselesaikan secara kolektif.
         </p>
       </div>
+
+      {/* Progress Unit Card */}
+      {tasks.length > 0 && (
+        <div className="bg-gradient-to-r from-brand-500 to-blue-600 dark:from-brand-600 dark:to-blue-700 text-white rounded-3xl p-6 shadow-md relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-2 relative z-10">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white uppercase tracking-wider">
+              Progres Kerja Unit
+            </span>
+            <h2 className="text-xl font-bold">
+              Divisi Unit: {currentUser?.unit?.name || "Unit Saya"}
+            </h2>
+            <p className="text-xs text-white/80 max-w-md">
+              Kelompok Anda telah menyelesaikan <strong className="font-bold text-white">{completedTasks}</strong> dari total <strong className="font-bold text-white">{totalTasks}</strong> tugas kelompok yang didelegasikan.
+            </p>
+          </div>
+
+          <div className="w-full md:w-72 space-y-2 relative z-10 flex-shrink-0">
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span>Penyelesaian Tugas</span>
+              <span className="text-sm font-extrabold">{completionPercentage}%</span>
+            </div>
+            {/* Progress bar container */}
+            <div className="w-full h-3 rounded-full bg-white/20 overflow-hidden">
+              <div
+                style={{ width: `${completionPercentage}%` }}
+                className="h-full rounded-full bg-white transition-all duration-500"
+              ></div>
+            </div>
+            <div className="text-[10px] text-white/70 text-right">
+              {completedTasks} / {totalTasks} Tugas Selesai
+            </div>
+          </div>
+
+          {/* Decorative background blurs */}
+          <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-white/10 blur-2xl pointer-events-none"></div>
+          <div className="absolute -bottom-8 -left-8 h-24 w-24 rounded-full bg-white/5 blur-xl pointer-events-none"></div>
+        </div>
+      )}
 
       <div className="animate-fade-in">
         {/* Full-width: Tasks Table */}
@@ -1159,8 +1459,14 @@ export default function MyTasksEmployeePage() {
       {/* Modal: Detail Laporan Tugas Unit */}
       <Modal
         isOpen={isDetailModalOpen}
-        onClose={() => setIsDetailModalOpen(false)}
-        className="max-w-[550px] p-6"
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setIsModalFullscreen(false);
+        }}
+        isFullscreen={isModalFullscreen}
+        showFullscreenButton={true}
+        onToggleFullscreen={() => setIsModalFullscreen(!isModalFullscreen)}
+        className={isModalFullscreen ? "w-screen h-screen max-w-full m-0 p-6 overflow-y-auto rounded-none bg-white dark:bg-gray-900" : "max-w-[550px] p-6"}
       >
         <div className="space-y-4">
           <div className="border-b pb-3 dark:border-gray-800 pr-10 sm:pr-14">
@@ -1181,6 +1487,44 @@ export default function MyTasksEmployeePage() {
                 {selectedTask?.description || "Tidak ada deskripsi tugas."}
               </p>
             </div>
+
+            {selectedTask?.sub_tasks && selectedTask.sub_tasks.length > 0 && (
+              <div className="p-3.5 bg-gray-50/70 dark:bg-white/[0.02] border border-gray-150 dark:border-gray-800 rounded-2xl space-y-2">
+                <span className="block text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">Daftar Sub-Tugas (Checklist Progres)</span>
+                <div className="flex flex-col gap-1.5">
+                  {selectedTask.sub_tasks.map((st) => {
+                    const activeSub = st.submissions?.find(
+                      (s) => s.status === "pending" || s.status === "approved" || s.status === "rejected"
+                    );
+                    const isCompleted = activeSub?.status === "approved";
+                    const isPending = activeSub?.status === "pending";
+
+                    return (
+                      <div key={st.id} className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-900 border border-gray-150 dark:border-gray-800 rounded-xl shadow-theme-xs min-w-0">
+                        {isCompleted ? (
+                          <div className="flex-shrink-0 w-4.5 h-4.5 text-success-500 bg-success-50 dark:bg-success-500/10 rounded-full flex items-center justify-center">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          </div>
+                        ) : isPending ? (
+                          <div className="flex-shrink-0 w-4.5 h-4.5 text-warning-500 bg-warning-50 dark:bg-warning-500/10 rounded-full flex items-center justify-center animate-pulse" title="Menunggu Review">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3" />
+                            </svg>
+                          </div>
+                        ) : (
+                          <div className="flex-shrink-0 w-4.5 h-4.5 border border-gray-300 dark:border-gray-700 rounded-md"></div>
+                        )}
+                        <span className={`text-xs font-bold truncate ${isCompleted ? "text-gray-400 dark:text-gray-550 line-through font-normal" : "text-gray-800 dark:text-gray-250"}`} title={st.title}>
+                          {st.title}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {selectedTask?.sub_tasks && selectedTask.sub_tasks.length > 0 ? (
               <div className="space-y-4 pt-2">
@@ -1290,6 +1634,14 @@ export default function MyTasksEmployeePage() {
                     </p>
                   </div>
                 </div>
+
+                {/* Dynamic Table from Excel/CSV if exists */}
+                {selectedTask?.submission_table_data && (
+                  <div className="space-y-1.5">
+                    <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tabel Hasil Kerja</span>
+                    <TableEditor disabled={true} initialData={selectedTask.submission_table_data} />
+                  </div>
+                )}
 
                 {/* File attachment */}
                 {selectedTask?.submission_file_url && (

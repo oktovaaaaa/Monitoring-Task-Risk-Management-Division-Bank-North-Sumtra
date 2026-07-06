@@ -297,19 +297,19 @@ const AppSidebar: React.FC = () => {
             <>
               <img
                 className="dark:hidden w-[55px] h-[55px] object-contain"
-                src="/images/sumut.png"
+                src="/images/sumut.png?v=1"
                 alt="Logo"
               />
               <img
                 className="hidden dark:block w-[55px] h-[55px] object-contain"
-                src="/images/sumut.png"
+                src="/images/sumut.png?v=1"
                 alt="Logo"
               />
             </>
           ) : (
             <img
               className="w-[32px] h-[32px] object-contain"
-              src="/images/sumut.png"
+              src="/images/sumut.png?v=1"
               alt="Logo"
             />
           )}
