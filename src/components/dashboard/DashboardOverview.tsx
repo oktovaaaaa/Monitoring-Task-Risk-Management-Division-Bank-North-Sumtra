@@ -116,6 +116,25 @@ export default function DashboardOverview() {
     }
   }, [token, currentUser]);
 
+  // Extract all table_data JSON strings from tasks' sub_task submissions
+  const tableDataList = React.useMemo(() => {
+    const list: string[] = [];
+    tasks.forEach((t) => {
+      if (t.sub_tasks) {
+        t.sub_tasks.forEach((st: any) => {
+          if (st.submissions) {
+            st.submissions.forEach((subm: any) => {
+              if (subm.table_data) {
+                list.push(subm.table_data);
+              }
+            });
+          }
+        });
+      }
+    });
+    return list;
+  }, [tasks]);
+
   // If page hasn't mounted on client, show a loading spinner
   if (!isClient) {
     return (
@@ -274,25 +293,6 @@ export default function DashboardOverview() {
     ...chartOptions,
     labels: [adminChartLabel],
   };
-
-  // Extract all table_data JSON strings from tasks' sub_task submissions
-  const tableDataList = React.useMemo(() => {
-    const list: string[] = [];
-    tasks.forEach((t) => {
-      if (t.sub_tasks) {
-        t.sub_tasks.forEach((st: any) => {
-          if (st.submissions) {
-            st.submissions.forEach((subm: any) => {
-              if (subm.table_data) {
-                list.push(subm.table_data);
-              }
-            });
-          }
-        });
-      }
-    });
-    return list;
-  }, [tasks]);
 
   // --- RENDER 1: EMPLOYEE DASHBOARD ---
   if (isEmployee) {

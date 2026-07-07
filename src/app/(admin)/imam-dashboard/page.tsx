@@ -6,6 +6,7 @@ import Button from "@/components/ui/button/Button";
 import { Modal } from "@/components/ui/modal";
 import * as XLSX from "xlsx";
 import MarketRiskChart from "@/components/dashboard/MarketRiskChart";
+import MacroMonitoringChart from "@/components/dashboard/MacroMonitoringChart";
 
 interface Unit {
   id: string;
@@ -70,6 +71,69 @@ export default function ImamDashboardPage() {
     setPopupType(type);
     setPopupMessage(message);
     setPopupOpen(true);
+  };
+
+  // Detail Modal states
+  const [viewingSheetData, setViewingSheetData] = useState<{ title: string; columns: string[]; rows: string[][] } | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+
+  const openSheetDetail = (sheetName: string, modalTitle: string) => {
+    let latestSubmission = null;
+    for (let i = submissions.length - 1; i >= 0; i--) {
+      if (submissions[i].table_data) {
+        try {
+          const parsed = JSON.parse(submissions[i].table_data);
+          if (parsed && parsed.sheets && parsed.sheets.length > 0) {
+            latestSubmission = parsed;
+            break;
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+
+    if (!latestSubmission) {
+      showPopup("error", "Belum ada data sheet yang tersimpan.");
+      return;
+    }
+
+    // Special case for Cost of Fund (CoF) history across submissions
+    if (sheetName.toLowerCase().includes("cost of fund") && extractedStats?.cof) {
+      const cof = extractedStats.cof;
+      if (!cof.isMonthlyInSheet) {
+        setViewingSheetData({
+          title: "Riwayat Lengkap Cost of Fund (CoF) Bulanan",
+          columns: ["Bulan / Periode", "Nilai Cost of Fund"],
+          rows: cof.allModalItems.map(item => [item.name, item.rate])
+        });
+        setIsDetailModalOpen(true);
+        return;
+      }
+    }
+
+    const sheet = latestSubmission.sheets.find(
+      (s: any) => s.name.toLowerCase().trim().includes(sheetName.toLowerCase().trim())
+    );
+
+    if (!sheet || !sheet.rows || sheet.rows.length === 0) {
+      showPopup("error", `Data untuk sheet "${sheetName}" tidak ditemukan atau masih kosong.`);
+      return;
+    }
+
+    setViewingSheetData({
+      title: modalTitle,
+      columns: sheet.columns,
+      rows: sheet.rows
+    });
+    setIsDetailModalOpen(true);
+  };
+
+  const scrollToInputList = () => {
+    const element = document.getElementById("daftar-input-data");
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth" });
+    }
   };
 
   // Load Auth State
@@ -295,6 +359,288 @@ export default function ImamDashboardPage() {
     }
   }).length;
 
+  // Extracted Stats for Deposito and Cost of Fund
+  const extractedStats = React.useMemo(() => {
+    let latestSubmission = null;
+    for (let i = submissions.length - 1; i >= 0; i--) {
+      if (submissions[i].table_data) {
+        try {
+          const parsed = JSON.parse(submissions[i].table_data);
+          if (parsed && parsed.sheets && parsed.sheets.length > 0) {
+            latestSubmission = parsed;
+            break;
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+
+    if (!latestSubmission) return null;
+
+    let depositoData: { topItems: { name: string; amount: string; rate: string }[]; maxAmount: string; maxRate: string } | null = null;
+    let cofData: { 
+      overallRate: string; 
+      isMonthlyInSheet: boolean;
+      cardItems: { name: string; rate: string; amount?: string }[];
+      allModalItems: { name: string; rate: string; amount?: string }[];
+      rawColumns?: string[];
+      rawRows?: string[][];
+    } | null = null;
+
+    // Helper to check if string contains month names
+    const isMonthName = (str: string): boolean => {
+      if (!str) return false;
+      const lower = str.toLowerCase().trim();
+      const months = [
+        "januari", "februari", "maret", "april", "mei", "juni", 
+        "juli", "agustus", "september", "oktober", "november", "desember",
+        "jan", "feb", "mar", "apr", "mei", "jun", "jul", "agu", "sep", "okt", "nov", "des"
+      ];
+      return months.some(m => lower.includes(m));
+    };
+
+    // 1. Parse Deposito Tertinggi
+    const depSheet = latestSubmission.sheets.find(
+      (s: any) => s.name.toLowerCase().trim().includes("deposito tertinggi") || s.name.toLowerCase().trim().includes("deposito")
+    );
+    if (depSheet && depSheet.rows && depSheet.rows.length > 0) {
+      const columns = depSheet.columns.map((c: string) => c.toLowerCase().trim());
+      
+      const nameIdx = columns.findIndex((c: string) => c.includes("nama") || c.includes("deposan") || c.includes("nasabah") || c.includes("uraian") || c.includes("kolom 1") || c.includes("data type") || c.includes("komponen"));
+      const nominalIdx = columns.findIndex((c: string) => c.includes("nominal") || c.includes("jumlah") || c.includes("nilai") || c.includes("volume") || c.includes("saldo"));
+      const rateIdx = columns.findIndex((c: string) => c.includes("rate") || c.includes("bunga") || c.includes("suku bunga") || c.includes("current"));
+
+      const rowsData = depSheet.rows.map((row: string[]) => {
+        const name = nameIdx !== -1 ? row[nameIdx] : "";
+        const amount = nominalIdx !== -1 ? row[nominalIdx] : "";
+        const rate = rateIdx !== -1 ? row[rateIdx] : "";
+        return { name, amount, rate };
+      }).filter((r: any) => r.name || r.amount);
+
+      let maxAmount = "";
+      let maxRate = "";
+      let maxVal = -1;
+      
+      rowsData.forEach((r: any) => {
+        if (r.amount) {
+          const clean = r.amount.replace(/[^\d]/g, "");
+          const num = parseInt(clean, 10);
+          if (!isNaN(num) && num > maxVal) {
+            maxVal = num;
+            maxAmount = r.amount;
+          }
+        }
+        if (r.rate) {
+          const cleanRate = parseFloat(r.rate.replace(/%/g, "").replace(",", "."));
+          const currentMaxRate = parseFloat(maxRate.replace(/%/g, "").replace(",", "."));
+          if (!isNaN(cleanRate) && (isNaN(currentMaxRate) || cleanRate > currentMaxRate)) {
+            maxRate = r.rate;
+          }
+        }
+      });
+
+      depositoData = {
+        topItems: rowsData.slice(0, 3),
+        maxAmount: maxAmount || (rowsData[0] ? rowsData[0].amount : "-"),
+        maxRate: maxRate || (rowsData[0] ? rowsData[0].rate : "-"),
+      };
+    }
+
+    // 2. Parse Cost of Fund
+    const cofSheet = latestSubmission.sheets.find(
+      (s: any) => s.name.toLowerCase().trim().includes("cost of fund") || s.name.toLowerCase().trim().includes("cof")
+    );
+    if (cofSheet && cofSheet.rows && cofSheet.rows.length > 0) {
+      const columns = cofSheet.columns.map((c: string) => c.toLowerCase().trim());
+      
+      const nameIdx = columns.findIndex((c: string) => c.includes("sumber") || c.includes("komponen") || c.includes("dana") || c.includes("nama") || c.includes("uraian") || c.includes("kolom 1") || c.includes("data type") || c.includes("bulan"));
+      const rateIdx = columns.findIndex((c: string) => c.includes("rate") || c.includes("bunga") || c.includes("cost") || c.includes("suku bunga") || c.includes("current") || c.includes("persen") || c.includes("cof"));
+      const amountIdx = columns.findIndex((c: string) => c.includes("nominal") || c.includes("jumlah") || c.includes("nilai") || c.includes("volume") || c.includes("saldo"));
+
+      const rowsData = cofSheet.rows.map((row: string[]) => {
+        const name = nameIdx !== -1 ? row[nameIdx] : "";
+        const rate = rateIdx !== -1 ? row[rateIdx] : "";
+        const amount = amountIdx !== -1 ? row[amountIdx] : "";
+        return { name, rate, amount };
+      }).filter((r: any) => r.name || r.rate);
+
+      // Check if rows represent monthly rates
+      const hasMonths = rowsData.some((r: any) => isMonthName(r.name));
+
+      if (hasMonths) {
+        const monthlyRows = rowsData.filter((r: any) => isMonthName(r.name));
+        const latestRow = monthlyRows[monthlyRows.length - 1];
+        
+        cofData = {
+          overallRate: latestRow ? latestRow.rate : "-",
+          isMonthlyInSheet: true,
+          cardItems: monthlyRows.slice(-3).reverse(), // Take last 3 months, reverse to show newest first
+          allModalItems: monthlyRows,
+          rawColumns: cofSheet.columns,
+          rawRows: cofSheet.rows
+        };
+      } else {
+        let overallRate = "";
+        const totalRow = rowsData.find((r: any) => r.name.toLowerCase().includes("total") || r.name.toLowerCase().includes("cost of fund") || r.name.toLowerCase().includes("overall") || r.name.toLowerCase().includes("cof"));
+        
+        if (totalRow) {
+          overallRate = totalRow.rate;
+        } else {
+          const lastRow = rowsData[rowsData.length - 1];
+          if (lastRow) {
+            overallRate = lastRow.rate;
+          }
+        }
+
+        // Gather CoF history from last submissions
+        const historicalCof: { name: string; rate: string }[] = [];
+        const sortedSubs = [...submissions].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        
+        sortedSubs.forEach((sub) => {
+          if (sub.table_data) {
+            try {
+              const parsed = JSON.parse(sub.table_data);
+              const subCofSheet = parsed.sheets.find(
+                (s: any) => s.name.toLowerCase().trim().includes("cost of fund") || s.name.toLowerCase().trim().includes("cof")
+              );
+              if (subCofSheet && subCofSheet.rows && subCofSheet.rows.length > 0) {
+                const subCols = subCofSheet.columns.map((c: string) => c.toLowerCase().trim());
+                const subRateIdx = subCols.findIndex((c: string) => c.includes("rate") || c.includes("bunga") || c.includes("cost") || c.includes("suku bunga") || c.includes("cof"));
+                const subNameIdx = subCols.findIndex((c: string) => c.includes("sumber") || c.includes("komponen") || c.includes("dana") || c.includes("nama") || c.includes("uraian"));
+                
+                const subRows = subCofSheet.rows.map((row: string[]) => {
+                  const name = subNameIdx !== -1 ? row[subNameIdx] : "";
+                  const rate = subRateIdx !== -1 ? row[subRateIdx] : "";
+                  return { name, rate };
+                }).filter((r: any) => r.name || r.rate);
+
+                let subOverall = "";
+                const subTotalRow = subRows.find((r: any) => r.name.toLowerCase().includes("total") || r.name.toLowerCase().includes("cost of fund") || r.name.toLowerCase().includes("overall") || r.name.toLowerCase().includes("cof"));
+                
+                if (subTotalRow) {
+                  subOverall = subTotalRow.rate;
+                } else {
+                  const lastRow = subRows[subRows.length - 1];
+                  if (lastRow) {
+                    subOverall = lastRow.rate;
+                  }
+                }
+
+                if (subOverall) {
+                  const dateObj = new Date(sub.created_at);
+                  const monthName = dateObj.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+                  if (!historicalCof.some(h => h.name === monthName)) {
+                    historicalCof.push({
+                      name: monthName,
+                      rate: subOverall
+                    });
+                  }
+                }
+              }
+            } catch (e) {
+              // ignore
+            }
+          }
+        });
+
+        cofData = {
+          overallRate: overallRate || "-",
+          isMonthlyInSheet: false,
+          cardItems: historicalCof.slice(0, 3), // Show last 3 submissions' CoF rates in card
+          allModalItems: historicalCof,          // Show all in modal
+          rawColumns: cofSheet.columns,
+          rawRows: cofSheet.rows
+        };
+      }
+    }
+
+    // 3. Parse Rasio Likuiditas
+    let likuiditasData: {
+      greenCount: number;
+      yellowCount: number;
+      redCount: number;
+      items: { name: string; value: string; color: "green" | "yellow" | "red" | "gray" }[];
+    } | null = null;
+
+    const liqSheet = latestSubmission.sheets.find(
+      (s: any) => s.name.toLowerCase().trim().includes("likuiditas") || s.name.toLowerCase().trim().includes("rasio")
+    );
+    if (liqSheet && liqSheet.rows && liqSheet.rows.length > 0) {
+      const columns = liqSheet.columns.map((c: string) => c.toLowerCase().trim());
+      
+      const nameIdx = columns.findIndex((c: string) => c.includes("rasio") || c.includes("nama") || c.includes("uraian") || c.includes("kolom 1") || c.includes("parameter"));
+      const valIdx = columns.findIndex((c: string) => c.includes("value") || c.includes("realisasi") || c.includes("current") || c.includes("kini") || c.includes("nilai") || c.includes("hasil"));
+
+      const colTypes = columns.map((col) => {
+        const name = col.toLowerCase().trim();
+        if (name.includes("hijau mud") || name.includes("hijau terang") || name.includes("hijau muda")) return "hijau_muda";
+        if (name.includes("hijau") || name.includes("appetite") || name.includes("target")) return "hijau_tua";
+        if (name.includes("kuning") || name.includes("yellow") || name.includes("jingga") || name.includes("oranye") || name.includes("tolerance") || name.includes("toleransi")) return "kuning";
+        if (name.includes("merah mud") || name.includes("merah mu") || name.includes("pink")) return "merah_muda";
+        if (name.includes("merah tu") || name.includes("merah") || name.includes("red") || name.includes("limit") || name.includes("batas")) return "merah_tua";
+        if (name.includes("parameter") || name.includes("rasio") || name.includes("indikator")) return "parameter";
+        return "realization";
+      });
+
+      let greenCount = 0;
+      let yellowCount = 0;
+      let redCount = 0;
+      const items: { name: string; value: string; color: "green" | "yellow" | "red" | "gray" }[] = [];
+
+      liqSheet.rows.forEach((row: string[]) => {
+        const name = nameIdx !== -1 ? row[nameIdx] : "";
+        const value = valIdx !== -1 ? row[valIdx] : "";
+        if (!name) return;
+
+        let cellColor: "green" | "yellow" | "red" | "gray" = "gray";
+        if (value && value.trim() !== "") {
+          let matchedType = "";
+          for (let i = 0; i < colTypes.length; i++) {
+            const type = colTypes[i];
+            if (type === "realization" || type === "parameter") continue;
+            const ruleText = row[i];
+            if (!ruleText || ruleText.trim() === "") continue;
+            const rule = parseRule(ruleText);
+            if (rule && matchRule(value, rule)) {
+              matchedType = type;
+              break;
+            }
+          }
+
+          if (matchedType === "hijau_tua" || matchedType === "hijau_muda") {
+            cellColor = "green";
+            greenCount++;
+          } else if (matchedType === "kuning") {
+            cellColor = "yellow";
+            yellowCount++;
+          } else if (matchedType === "merah_tua" || matchedType === "merah_muda") {
+            cellColor = "red";
+            redCount++;
+          } else {
+            cellColor = "green";
+            greenCount++;
+          }
+        }
+
+        items.push({ name, value, color: cellColor });
+      });
+
+      likuiditasData = {
+        greenCount,
+        yellowCount,
+        redCount,
+        items
+      };
+    }
+
+    return {
+      deposito: depositoData,
+      cof: cofData,
+      likuiditas: likuiditasData
+    };
+  }, [submissions]);
+
   if (!isClient) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -505,55 +851,209 @@ export default function ImamDashboardPage() {
       </div>
 
       {/* Stats Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        {/* Metric 1 */}
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03] shadow-sm flex items-center justify-between">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Card: Rasio Likuiditas */}
+        <div 
+          onClick={() => openSheetDetail("likuiditas", "Rincian Data Rasio Likuiditas")}
+          className="rounded-3xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03] shadow-sm flex flex-col justify-between min-h-[190px] cursor-pointer hover:border-emerald-400 dark:hover:border-emerald-900/50 hover:shadow-md hover:scale-[1.01] transition-all duration-200"
+        >
           <div>
-            <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">Total Input Data</span>
-            <h4 className="text-3xl font-extrabold text-gray-900 dark:text-white mt-1">{loading ? "..." : totalReports}</h4>
-            <p className="text-[10px] text-gray-400 mt-1">Laporan tersimpan di database</p>
+            <div className="flex items-center justify-between border-b pb-2.5 dark:border-gray-800">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center w-8 h-8 bg-emerald-50 rounded-lg dark:bg-emerald-500/10 text-emerald-600">
+                  <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                </div>
+                <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Rasio Likuiditas</span>
+              </div>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-100/30">
+                Limit & Appetite
+              </span>
+            </div>
+            
+            <div className="mt-4">
+              <div className="flex items-baseline gap-1">
+                <h4 className="text-3xl font-extrabold text-emerald-600 dark:text-emerald-400 tracking-tight">
+                  {loading ? "..." : `${extractedStats?.likuiditas?.greenCount || 0}`}
+                </h4>
+                <span className="text-xs text-gray-455 dark:text-gray-400 font-semibold">Aman</span>
+              </div>
+              <p className="text-[10px] text-gray-450 dark:text-gray-400 mt-0.5 font-medium">
+                {extractedStats?.likuiditas?.yellowCount || 0} Toleransi &bull; {extractedStats?.likuiditas?.redCount || 0} Limit Breach
+              </p>
+            </div>
           </div>
-          <div className="flex items-center justify-center w-12 h-12 bg-purple-50 rounded-2xl dark:bg-purple-500/10 text-purple-500">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
-          </div>
+
+          {/* Sub-list of Likuiditas indicators with status dots */}
+          {extractedStats?.likuiditas?.items && extractedStats.likuiditas.items.length > 0 ? (
+            <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800/60 space-y-1.5">
+              {extractedStats.likuiditas.items.slice(0, 3).map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between text-[11px]">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${
+                      item.color === "green" 
+                        ? "bg-emerald-500" 
+                        : item.color === "yellow" 
+                        ? "bg-amber-500" 
+                        : item.color === "red"
+                        ? "bg-red-500"
+                        : "bg-gray-400"
+                    }`}></span>
+                    <span className="text-gray-500 dark:text-gray-400 truncate max-w-[130px] font-medium">{item.name}</span>
+                  </div>
+                  <span className="font-bold text-gray-800 dark:text-gray-200">{item.value || "-"}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800/60 text-center">
+              <span className="text-[10px] text-gray-455 italic">Isi sheet "Rasio Likuiditas" untuk melihat rincian</span>
+            </div>
+          )}
         </div>
 
-        {/* Metric 2 */}
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03] shadow-sm flex items-center justify-between">
+        {/* Card 1: Deposito Tertinggi */}
+        <div 
+          onClick={() => openSheetDetail("deposito", "Rincian Data Deposito Tertinggi")}
+          className="rounded-3xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03] shadow-sm flex flex-col justify-between min-h-[190px] cursor-pointer hover:border-purple-400 dark:hover:border-purple-900/50 hover:shadow-md hover:scale-[1.01] transition-all duration-200"
+        >
           <div>
-            <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">Spreadsheet Aktif</span>
-            <h4 className="text-3xl font-extrabold text-brand-600 dark:text-brand-400 mt-1">{loading ? "..." : totalSpreadsheets}</h4>
-            <p className="text-[10px] text-gray-400 mt-1">Spreadsheet excel buatan pribadi</p>
+            <div className="flex items-center justify-between border-b pb-2.5 dark:border-gray-800">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center w-8 h-8 bg-purple-50 rounded-lg dark:bg-purple-500/10 text-purple-650">
+                  <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Deposito Tertinggi</span>
+              </div>
+              {extractedStats?.deposito?.maxRate && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-400 border border-success-100/30">
+                  Rate: {extractedStats.deposito.maxRate}
+                </span>
+              )}
+            </div>
+            
+            <div className="mt-4">
+              <h4 className="text-2xl font-extrabold text-gray-900 dark:text-white tracking-tight">
+                {loading ? "..." : (extractedStats?.deposito?.maxAmount || "Belum Ada Data")}
+              </h4>
+              <p className="text-[10px] text-gray-400 mt-0.5">Saldo nominal deposan tertinggi saat ini</p>
+            </div>
           </div>
-          <div className="flex items-center justify-center w-12 h-12 bg-blue-50 rounded-2xl dark:bg-blue-500/10 text-blue-505">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-          </div>
+
+          {/* Sub-list of top depositors */}
+          {extractedStats?.deposito?.topItems && extractedStats.deposito.topItems.length > 0 ? (
+            <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800/60 space-y-1.5">
+              {extractedStats.deposito.topItems.map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between text-[11px]">
+                  <span className="text-gray-500 dark:text-gray-400 truncate max-w-[150px] font-medium">{item.name || `Deposan ${idx + 1}`}</span>
+                  <span className="font-bold text-gray-800 dark:text-gray-200">{item.amount}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800/60 text-center">
+              <span className="text-[10px] text-gray-450 italic">Isi sheet "Deposito Tertinggi" untuk melihat rincian</span>
+            </div>
+          )}
         </div>
 
-        {/* Metric 3 */}
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03] shadow-sm flex items-center justify-between">
+        {/* Card 2: Cost of Fund (CoF) */}
+        <div 
+          onClick={() => openSheetDetail("cost of fund", "Rincian Data Cost of Fund")}
+          className="rounded-3xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03] shadow-sm flex flex-col justify-between min-h-[190px] cursor-pointer hover:border-blue-400 dark:hover:border-blue-900/50 hover:shadow-md hover:scale-[1.01] transition-all duration-200"
+        >
           <div>
-            <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">Dokumen / File Terlampir</span>
-            <h4 className="text-3xl font-extrabold text-success-600 dark:text-success-400 mt-1">{loading ? "..." : totalFiles}</h4>
-            <p className="text-[10px] text-gray-400 mt-1">Laporan file PDF/Excel diunggah</p>
+            <div className="flex items-center justify-between border-b pb-2.5 dark:border-gray-800">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center w-8 h-8 bg-blue-50 rounded-lg dark:bg-blue-500/10 text-blue-500">
+                  <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+                <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Cost of Fund (CoF)</span>
+              </div>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-750 dark:bg-blue-500/10 dark:text-blue-400 border border-blue-100/30">
+                Rasio Pendanaan
+              </span>
+            </div>
+            
+            <div className="mt-4">
+              <h4 className="text-3xl font-extrabold text-brand-600 dark:text-brand-400 tracking-tight">
+                {loading ? "..." : (extractedStats?.cof?.overallRate && extractedStats.cof.overallRate !== "-" ? (extractedStats.cof.overallRate.includes("%") ? extractedStats.cof.overallRate : `${extractedStats.cof.overallRate}%`) : "Belum Ada Data")}
+              </h4>
+              <p className="text-[10px] text-gray-400 mt-0.5 font-medium">Rata-rata tertimbang suku bunga dana</p>
+            </div>
           </div>
-          <div className="flex items-center justify-center w-12 h-12 bg-success-50 rounded-2xl dark:bg-success-500/10 text-success-500">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
+
+          {/* Sub-list of CoF components */}
+          {extractedStats?.cof?.cardItems && extractedStats.cof.cardItems.length > 0 ? (
+            <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800/60 space-y-1.5">
+              {extractedStats.cof.cardItems.map((comp, idx) => (
+                <div key={idx} className="flex items-center justify-between text-[11px]">
+                  <span className="text-gray-500 dark:text-gray-400 truncate max-w-[150px] font-medium">{comp.name || `Periode ${idx + 1}`}</span>
+                  <span className="font-bold text-gray-800 dark:text-gray-200">{comp.rate ? (comp.rate.includes("%") ? comp.rate : `${comp.rate}%`) : (comp.amount || "-")}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800/60 text-center">
+              <span className="text-[10px] text-gray-450 italic">Isi sheet "Cost of Fund" untuk melihat rincian</span>
+            </div>
+          )}
+        </div>
+
+        {/* Card 3: Ringkasan Aktivitas */}
+        <div 
+          onClick={scrollToInputList}
+          className="rounded-3xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-white/[0.03] shadow-sm flex flex-col justify-between min-h-[190px] cursor-pointer hover:border-success-400 dark:hover:border-success-900/50 hover:shadow-md hover:scale-[1.01] transition-all duration-200"
+        >
+          <div>
+            <div className="flex items-center justify-between border-b pb-2.5 dark:border-gray-800">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center w-8 h-8 bg-purple-50 rounded-lg dark:bg-purple-500/10 text-purple-600">
+                  <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                </div>
+                <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Aktivitas Laporan</span>
+              </div>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-500/10 dark:text-purple-400 border border-purple-100/30">
+                Pribadi
+              </span>
+            </div>
+            
+            <div className="mt-4">
+              <h4 className="text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">
+                {loading ? "..." : totalReports}
+              </h4>
+              <p className="text-[10px] text-gray-450 dark:text-gray-400 mt-0.5">Total input laporan yang tersimpan</p>
+            </div>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800/60 grid grid-cols-2 gap-4 text-center">
+            <div>
+              <span className="block text-[10px] text-gray-450">Spreadsheet</span>
+              <span className="text-xs font-bold text-gray-800 dark:text-gray-200">{totalSpreadsheets} Aktif</span>
+            </div>
+            <div className="border-l border-gray-100 dark:border-gray-800/60">
+              <span className="block text-[10px] text-gray-450">File Lampiran</span>
+              <span className="text-xs font-bold text-gray-800 dark:text-gray-200">{totalFiles} Unggah</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Market Risk Chart */}
-      <MarketRiskChart tableDataList={submissions.map((sub) => sub.table_data)} />
+      {/* Charts Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <MarketRiskChart tableDataList={submissions.map((sub) => sub.table_data)} />
+        <MacroMonitoringChart tableDataList={submissions.map((sub) => sub.table_data)} />
+      </div>
 
       {/* Main List Section */}
-      <div className="bg-white border border-gray-200 rounded-3xl dark:bg-white/[0.03] dark:border-gray-800 p-6 shadow-sm space-y-6">
+      <div id="daftar-input-data" className="scroll-mt-6 bg-white border border-gray-200 rounded-3xl dark:bg-white/[0.03] dark:border-gray-800 p-6 shadow-sm space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-4 dark:border-gray-800">
           <div>
             <h3 className="text-lg font-bold text-gray-900 dark:text-white">Daftar Input Data</h3>
@@ -608,60 +1108,83 @@ export default function ImamDashboardPage() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredSubmissions.map((sub) => (
-              <div
-                key={sub.id}
-                onClick={() => openViewWorkspace(sub)}
-                className="group relative flex flex-col justify-between border border-gray-150 dark:border-gray-800 hover:border-purple-300 dark:hover:border-purple-900/60 rounded-3xl bg-white dark:bg-transparent p-5 shadow-theme-xs hover:shadow-md transition-all duration-200 cursor-pointer"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-3">
-                    <h4 className="font-extrabold text-gray-900 dark:text-white group-hover:text-purple-650 dark:group-hover:text-purple-400 transition-colors line-clamp-1">
-                      {sub.title}
-                    </h4>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <button
-                        onClick={(e) => openEditWorkspace(sub, e)}
-                        className="p-1.5 text-gray-400 hover:text-purple-600 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition"
-                        title="Edit Data"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={(e) => handleDeleteSubmission(sub.id, sub.title, e)}
-                        className="p-1.5 text-gray-400 hover:text-error-550 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition"
-                        title="Hapus Data"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-455 line-clamp-2 mt-2 leading-relaxed">
-                    {sub.description || "Tidak ada keterangan."}
-                  </p>
-                </div>
-
-                <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between text-[10px]">
-                  <div className="flex items-center gap-1.5">
-                    {sub.file_url ? (
-                      <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-400 border border-success-100/50">
-                        File: {sub.file_name || "Attachment"}
-                      </span>
-                    ) : (
-                      <span className="text-gray-400 italic">Tanpa File</span>
-                    )}
-                  </div>
-                  <span className="text-gray-400">
-                    {new Date(sub.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
-                  </span>
-                </div>
-              </div>
-            ))}
+          <div className="overflow-x-auto rounded-2xl border border-gray-150 dark:border-gray-800">
+            <table className="min-w-full divide-y divide-gray-150 dark:divide-gray-800 text-left">
+              <thead className="bg-gray-50 dark:bg-gray-900/60 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <tr>
+                  <th scope="col" className="px-6 py-4.5 w-12 text-center">No</th>
+                  <th scope="col" className="px-6 py-4.5">Nama Laporan</th>
+                  <th scope="col" className="px-6 py-4.5">Lampiran Berkas</th>
+                  <th scope="col" className="px-6 py-4.5">Tanggal Input</th>
+                  <th scope="col" className="px-6 py-4.5 text-center">Tindakan</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white dark:bg-transparent divide-y divide-gray-100 dark:divide-gray-800/80 text-sm">
+                {filteredSubmissions.map((sub, idx) => (
+                  <tr 
+                    key={sub.id} 
+                    className="hover:bg-gray-50/50 dark:hover:bg-white/[0.01] transition-all duration-150 cursor-pointer"
+                    onClick={() => openViewWorkspace(sub)}
+                  >
+                    <td className="px-6 py-4 text-center text-gray-450 dark:text-gray-500 font-semibold">
+                      {idx + 1}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="font-bold text-gray-900 dark:text-white line-clamp-1 hover:text-purple-650 dark:hover:text-purple-400 transition-colors">
+                        {sub.title}
+                      </div>
+                      <div className="text-xs text-gray-455 dark:text-gray-400 line-clamp-1 mt-0.5 font-normal">
+                        {sub.description || "Tidak ada keterangan."}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {sub.file_url ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-400 border border-success-100/30 max-w-[200px] truncate" title={sub.file_name}>
+                          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <span className="truncate text-[11px]">{sub.file_name || "Attachment"}</span>
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400 italic font-normal">Tanpa File</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500 dark:text-gray-400 font-normal">
+                      {new Date(sub.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => openViewWorkspace(sub)}
+                          className="px-3 py-1.5 text-xs font-bold text-gray-650 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 rounded-lg transition"
+                          title="Buka Ruang Kerja"
+                        >
+                          Buka
+                        </button>
+                        <button
+                          onClick={(e) => openEditWorkspace(sub, e)}
+                          className="p-2 text-gray-450 hover:text-purple-600 rounded-lg hover:bg-gray-50 dark:hover:bg-white/5 transition"
+                          title="Edit Laporan"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={(e) => handleDeleteSubmission(sub.id, sub.title, e)}
+                          className="p-2 text-gray-450 hover:text-error-550 rounded-lg hover:bg-gray-50 dark:hover:bg-white/5 transition"
+                          title="Hapus Laporan"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -701,6 +1224,73 @@ export default function ImamDashboardPage() {
               }`}
             >
               Tutup
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Detail Modal for Deposito / Cost of Fund */}
+      <Modal 
+        isOpen={isDetailModalOpen} 
+        onClose={() => setIsDetailModalOpen(false)} 
+        className="max-w-4xl p-6"
+      >
+        <div className="space-y-4">
+          <div className="border-b pb-3 dark:border-gray-800 flex justify-between items-center pr-10">
+            <div>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                {viewingSheetData?.title}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Data lengkap yang diambil dari laporan spreadsheet terbaru.
+              </p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-2xl border border-gray-150 dark:border-gray-800 max-h-[450px]">
+            <table className="min-w-full divide-y divide-gray-150 dark:divide-gray-800 text-left">
+              <thead className="bg-gray-50 dark:bg-gray-900/60 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky top-0 backdrop-blur-xs">
+                <tr>
+                  {viewingSheetData?.columns.map((col, idx) => (
+                    <th key={idx} scope="col" className="px-6 py-4">
+                      {col || `Kolom ${idx + 1}`}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="bg-white dark:bg-transparent divide-y divide-gray-100 dark:divide-gray-850/80 text-sm">
+                {viewingSheetData?.rows.map((row, rIdx) => (
+                  <tr 
+                    key={rIdx} 
+                    className="hover:bg-gray-50/50 dark:hover:bg-white/[0.01] transition-colors"
+                  >
+                    {row.map((cell, cIdx) => {
+                      const colorClass = getCellColorClass(rIdx, cIdx, viewingSheetData.columns, row);
+                      return (
+                        <td 
+                          key={cIdx} 
+                          className={`px-6 py-3.5 ${
+                            colorClass 
+                              ? `${colorClass} border-r border-gray-150 dark:border-gray-800` 
+                              : "text-gray-800 dark:text-gray-200 border-r border-gray-150 dark:border-gray-800 last:border-0"
+                          }`}
+                        >
+                          {cell || "-"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-end pt-3 border-t dark:border-gray-850">
+            <button
+              onClick={() => setIsDetailModalOpen(false)}
+              className="px-5 py-2.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition cursor-pointer"
+            >
+              Tutup Rincian
             </button>
           </div>
         </div>
