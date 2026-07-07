@@ -121,7 +121,7 @@ interface Rule {
 function parseRule(str: string): Rule | null {
   if (!str) return null;
   let clean = str.toLowerCase().trim().replace(/\s+/g, "");
-  clean = clean.replace(/s\/d|sampai|to/g, "-");
+  clean = clean.replace(/s\/d|sampai|to|–|—/g, "-");
   
   const isPercent = clean.includes("%");
   const nums = clean.match(/[\d.,]+/g);
@@ -201,13 +201,13 @@ function getCellColorClass(
     if (name.includes("hijau") || name.includes("appetite") || name.includes("target")) {
       return "hijau_tua";
     }
-    if (name.includes("kuning") || name.includes("yellow") || name.includes("jingga") || name.includes("oranye")) {
+    if (name.includes("kuning") || name.includes("yellow") || name.includes("jingga") || name.includes("oranye") || name.includes("tolerance") || name.includes("toleransi")) {
       return "kuning";
     }
     if (name.includes("merah mud") || name.includes("merah mu") || name.includes("pink")) {
       return "merah_muda";
     }
-    if (name.includes("merah tu") || name.includes("merah") || name.includes("red")) {
+    if (name.includes("merah tu") || name.includes("merah") || name.includes("red") || name.includes("limit") || name.includes("batas")) {
       return "merah_tua";
     }
     if (name.includes("parameter") || name.includes("rasio") || name.includes("indikator")) {

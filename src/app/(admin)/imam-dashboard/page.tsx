@@ -5,6 +5,7 @@ import Label from "@/components/form/Label";
 import Button from "@/components/ui/button/Button";
 import { Modal } from "@/components/ui/modal";
 import * as XLSX from "xlsx";
+import MarketRiskChart from "@/components/dashboard/MarketRiskChart";
 
 interface Unit {
   id: string;
@@ -548,6 +549,9 @@ export default function ImamDashboardPage() {
         </div>
       </div>
 
+      {/* Market Risk Chart */}
+      <MarketRiskChart tableDataList={submissions.map((sub) => sub.table_data)} />
+
       {/* Main List Section */}
       <div className="bg-white border border-gray-200 rounded-3xl dark:bg-white/[0.03] dark:border-gray-800 p-6 shadow-sm space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-4 dark:border-gray-800">
@@ -718,7 +722,7 @@ interface Rule {
 function parseRule(str: string): Rule | null {
   if (!str) return null;
   let clean = str.toLowerCase().trim().replace(/\s+/g, "");
-  clean = clean.replace(/s\/d|sampai|to/g, "-");
+  clean = clean.replace(/s\/d|sampai|to|–|—/g, "-");
   
   const isPercent = clean.includes("%");
   const nums = clean.match(/[\d.,]+/g);
@@ -798,13 +802,13 @@ function getCellColorClass(
     if (name.includes("hijau") || name.includes("appetite") || name.includes("target")) {
       return "hijau_tua";
     }
-    if (name.includes("kuning") || name.includes("yellow") || name.includes("jingga") || name.includes("oranye")) {
+    if (name.includes("kuning") || name.includes("yellow") || name.includes("jingga") || name.includes("oranye") || name.includes("tolerance") || name.includes("toleransi")) {
       return "kuning";
     }
     if (name.includes("merah mud") || name.includes("merah mu") || name.includes("pink")) {
       return "merah_muda";
     }
-    if (name.includes("merah tu") || name.includes("merah") || name.includes("red")) {
+    if (name.includes("merah tu") || name.includes("merah") || name.includes("red") || name.includes("limit") || name.includes("batas")) {
       return "merah_tua";
     }
     if (name.includes("parameter") || name.includes("rasio") || name.includes("indikator")) {
@@ -887,6 +891,12 @@ function TableEditor({
   const [showRowNumbers, setShowRowNumbers] = useState(true);
   const [editingSheetIdx, setEditingSheetIdx] = useState<number | null>(null);
   const [tempSheetName, setTempSheetName] = useState("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [sheetIdxToDelete, setSheetIdxToDelete] = useState<number | null>(null);
+  const [successPopupOpen, setSuccessPopupOpen] = useState(false);
+  const [successPopupMessage, setSuccessPopupMessage] = useState("");
+  const [importConfirmOpen, setImportConfirmOpen] = useState(false);
+  const [tempImportedSheets, setTempImportedSheets] = useState<SheetData[] | null>(null);
 
   const handleStartRenameSheet = (idx: number, currentName: string) => {
     if (disabled) return;
@@ -1042,8 +1052,8 @@ function TableEditor({
         });
 
         if (importedSheets.length > 0) {
-          setSheets(importedSheets);
-          setActiveSheetIdx(0);
+          setTempImportedSheets(importedSheets);
+          setImportConfirmOpen(true);
         }
       } catch (err: any) {
         console.error("Gagal memproses file Excel:", err);
@@ -1052,6 +1062,62 @@ function TableEditor({
     };
     reader.readAsArrayBuffer(file);
     e.target.value = "";
+  };
+
+  const handleAppendImportedSheets = () => {
+    if (!tempImportedSheets) return;
+    setSheets((prevSheets) => {
+      const nextSheets = [...prevSheets];
+      tempImportedSheets.forEach((newSheet) => {
+        let uniqueName = newSheet.name;
+        let counter = 1;
+        while (nextSheets.some((s) => s.name.toLowerCase() === uniqueName.toLowerCase())) {
+          uniqueName = `${newSheet.name} (${counter})`;
+          counter++;
+        }
+        newSheet.name = uniqueName;
+        nextSheets.push(newSheet);
+      });
+      setActiveSheetIdx(prevSheets.length);
+      return nextSheets;
+    });
+    setImportConfirmOpen(false);
+    setTempImportedSheets(null);
+  };
+
+  const handleOverwriteActiveSheet = () => {
+    if (!tempImportedSheets) return;
+    setSheets((prevSheets) => {
+      const nextSheets = [...prevSheets];
+      const activeSheet = nextSheets[activeSheetIdx];
+      
+      const firstImported = tempImportedSheets[0];
+      nextSheets[activeSheetIdx] = {
+        ...activeSheet,
+        name: firstImported.name,
+        columns: firstImported.columns,
+        rows: firstImported.rows,
+        merges: firstImported.merges,
+      };
+      
+      if (tempImportedSheets.length > 1) {
+        for (let i = 1; i < tempImportedSheets.length; i++) {
+          const newSheet = tempImportedSheets[i];
+          let uniqueName = newSheet.name;
+          let counter = 1;
+          while (nextSheets.some((s) => s.name.toLowerCase() === uniqueName.toLowerCase())) {
+            uniqueName = `${newSheet.name} (${counter})`;
+            counter++;
+          }
+          newSheet.name = uniqueName;
+          nextSheets.push(newSheet);
+        }
+      }
+      
+      return nextSheets;
+    });
+    setImportConfirmOpen(false);
+    setTempImportedSheets(null);
   };
 
   useEffect(() => {
@@ -1131,6 +1197,30 @@ function TableEditor({
       return nextRow;
     });
     setSheets(nextSheets);
+  };
+
+  const handleDeleteSheetClick = (sIdx: number) => {
+    const targetSheet = sheets[sIdx];
+    const hasData = targetSheet.rows.some((row) =>
+      row.some((cell) => cell && cell.trim() !== "")
+    );
+    if (hasData) {
+      setSheetIdxToDelete(sIdx);
+      setDeleteConfirmOpen(true);
+    } else {
+      executeDeleteSheet(sIdx);
+    }
+  };
+
+  const executeDeleteSheet = (sIdx: number) => {
+    const sheetName = sheets[sIdx]?.name || "Sheet";
+    const nextSheets = sheets.filter((_, idx) => idx !== sIdx);
+    setSheets(nextSheets);
+    setActiveSheetIdx(0);
+    setDeleteConfirmOpen(false);
+    setSheetIdxToDelete(null);
+    setSuccessPopupMessage(`Sheet "${sheetName}" berhasil dihapus!`);
+    setSuccessPopupOpen(true);
   };
 
   const handleSave = () => {
@@ -1265,11 +1355,7 @@ function TableEditor({
             {sheets.length > 1 && (
               <button
                 type="button"
-                onClick={() => {
-                  const nextSheets = sheets.filter((_, idx) => idx !== sIdx);
-                  setSheets(nextSheets);
-                  setActiveSheetIdx(0);
-                }}
+                onClick={() => handleDeleteSheetClick(sIdx)}
                 className="ml-0.5 text-gray-400 hover:text-error-500 text-xs font-bold px-1 transition opacity-0 group-hover:opacity-100 cursor-pointer"
                 title="Hapus Sheet"
               >
@@ -1453,6 +1539,132 @@ function TableEditor({
           Simpan & Kirim Tabel
         </button>
       </div>
+
+      {/* Delete Sheet Confirmation Modal */}
+      <Modal 
+        isOpen={deleteConfirmOpen} 
+        onClose={() => {
+          setDeleteConfirmOpen(false);
+          setSheetIdxToDelete(null);
+        }} 
+        className="max-w-[400px] p-6 text-center"
+      >
+        <div className="flex flex-col items-center justify-center space-y-4">
+          <div className="w-16 h-16 bg-error-50 dark:bg-error-500/10 text-error-500 rounded-full flex items-center justify-center">
+            <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+            Hapus Sheet?
+          </h3>
+          
+          <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+            Sheet <strong>"{sheetIdxToDelete !== null ? sheets[sheetIdxToDelete]?.name : ""}"</strong> berisi data. Apakah Anda yakin ingin menghapusnya? Tindakan ini tidak dapat dibatalkan.
+          </p>
+          
+          <div className="pt-2 flex gap-3 w-full">
+            <button
+              onClick={() => {
+                setDeleteConfirmOpen(false);
+                setSheetIdxToDelete(null);
+              }}
+              className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-300 font-semibold hover:bg-gray-50 dark:hover:bg-white/5 transition"
+            >
+              Batal
+            </button>
+            <button
+              onClick={() => {
+                if (sheetIdxToDelete !== null) {
+                  executeDeleteSheet(sheetIdxToDelete);
+                }
+              }}
+              className="flex-1 py-2.5 rounded-xl text-white font-semibold bg-error-500 hover:bg-error-600 transition"
+            >
+              Ya, Hapus
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Success Popup Modal */}
+      <Modal isOpen={successPopupOpen} onClose={() => setSuccessPopupOpen(false)} className="max-w-[400px] p-6 text-center">
+        <div className="flex flex-col items-center justify-center space-y-4">
+          <div className="w-16 h-16 bg-success-50 dark:bg-success-500/10 text-success-500 rounded-full flex items-center justify-center">
+            <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+            Berhasil
+          </h3>
+          
+          <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+            {successPopupMessage}
+          </p>
+          
+          <div className="pt-2 w-full">
+            <button
+              onClick={() => setSuccessPopupOpen(false)}
+              className="w-full py-2.5 rounded-xl text-white font-semibold bg-brand-500 hover:bg-brand-600 transition"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Excel Import Option Modal */}
+      <Modal 
+        isOpen={importConfirmOpen} 
+        onClose={() => {
+          setImportConfirmOpen(false);
+          setTempImportedSheets(null);
+        }} 
+        className="max-w-[420px] p-6 text-center"
+      >
+        <div className="flex flex-col items-center justify-center space-y-4">
+          <div className="w-16 h-16 bg-brand-50 dark:bg-brand-500/10 text-brand-500 rounded-full flex items-center justify-center">
+            <svg className="w-8 h-8 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+            Opsi Impor Excel
+          </h3>
+          
+          <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+            Pilih bagaimana Anda ingin memasukkan data dari berkas Excel ini ke dalam workspace:
+          </p>
+          
+          <div className="pt-2 flex flex-col gap-3.5 w-full">
+            <button
+              onClick={handleOverwriteActiveSheet}
+              className="w-full py-3 rounded-xl border border-brand-500 bg-brand-50/10 hover:bg-brand-505 hover:text-white hover:border-brand-600 text-brand-600 font-semibold transition text-xs shadow-theme-xs cursor-pointer"
+            >
+              Gantikan Sheet Aktif ({sheets[activeSheetIdx]?.name})
+            </button>
+            <button
+              onClick={handleAppendImportedSheets}
+              className="w-full py-3 rounded-xl bg-brand-500 hover:bg-brand-600 text-white font-semibold transition text-xs shadow-theme-xs cursor-pointer"
+            >
+              Tambahkan sebagai Sheet Baru
+            </button>
+            <button
+              onClick={() => {
+                setImportConfirmOpen(false);
+                setTempImportedSheets(null);
+              }}
+              className="w-full py-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 text-xs transition cursor-pointer font-semibold"
+            >
+              Batal
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

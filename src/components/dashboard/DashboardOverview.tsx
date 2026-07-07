@@ -12,6 +12,7 @@ import MonthlySalesChart from "@/components/ecommerce/MonthlySalesChart";
 import StatisticsChart from "@/components/ecommerce/StatisticsChart";
 import RecentOrders from "@/components/ecommerce/RecentOrders";
 import DemographicCard from "@/components/ecommerce/DemographicCard";
+import MarketRiskChart from "@/components/dashboard/MarketRiskChart";
 
 // Dynamically import ReactApexChart to support client-side rendering
 const ReactApexChart = dynamic(() => import("react-apexcharts"), {
@@ -42,6 +43,7 @@ interface Task {
   };
   submitted_at?: string;
   created_at: string;
+  sub_tasks?: any[];
 }
 
 export default function DashboardOverview() {
@@ -273,6 +275,25 @@ export default function DashboardOverview() {
     labels: [adminChartLabel],
   };
 
+  // Extract all table_data JSON strings from tasks' sub_task submissions
+  const tableDataList = React.useMemo(() => {
+    const list: string[] = [];
+    tasks.forEach((t) => {
+      if (t.sub_tasks) {
+        t.sub_tasks.forEach((st: any) => {
+          if (st.submissions) {
+            st.submissions.forEach((subm: any) => {
+              if (subm.table_data) {
+                list.push(subm.table_data);
+              }
+            });
+          }
+        });
+      }
+    });
+    return list;
+  }, [tasks]);
+
   // --- RENDER 1: EMPLOYEE DASHBOARD ---
   if (isEmployee) {
     return (
@@ -439,6 +460,9 @@ export default function DashboardOverview() {
             </div>
           </div>
         </div>
+
+        {/* Market Risk Daily Trend Line Chart */}
+        <MarketRiskChart tableDataList={tableDataList} />
 
         {/* Tasks List Table */}
         <div className="bg-white border border-gray-200 rounded-3xl dark:bg-white/[0.03] dark:border-gray-800 p-6 shadow-sm space-y-4">
