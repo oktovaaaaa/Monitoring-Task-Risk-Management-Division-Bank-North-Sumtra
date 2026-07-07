@@ -13,6 +13,7 @@ const (
 	RoleSuperAdmin Role = "super_admin"
 	RoleUnitAdmin  Role = "unit_admin"
 	RoleEmployee   Role = "employee"
+	RoleImam       Role = "imam"
 )
 
 type Unit struct {
@@ -166,6 +167,27 @@ type Notification struct {
 func (n *Notification) BeforeCreate(tx *gorm.DB) (err error) {
 	if n.ID == uuid.Nil {
 		n.ID = uuid.New()
+	}
+	return
+}
+
+type ImamSubmission struct {
+	ID          uuid.UUID      `gorm:"type:uuid;primary_key;" json:"id"`
+	Title       string         `gorm:"type:varchar(150);not null" json:"title"`
+	Description string         `gorm:"type:text" json:"description"`
+	FileURL     string         `gorm:"type:text" json:"file_url"`
+	FileName    string         `gorm:"type:text" json:"file_name"`
+	TableData   string         `gorm:"type:text" json:"table_data"`
+	UserID      uuid.UUID      `gorm:"type:uuid;not null;index" json:"user_id"`
+	User        *User          `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+func (is *ImamSubmission) BeforeCreate(tx *gorm.DB) (err error) {
+	if is.ID == uuid.Nil {
+		is.ID = uuid.New()
 	}
 	return
 }

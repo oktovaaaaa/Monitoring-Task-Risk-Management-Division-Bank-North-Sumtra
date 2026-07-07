@@ -75,6 +75,179 @@ interface SheetData {
   name: string;
   columns: string[];
   rows: string[][];
+  color?: string;
+  merges?: Array<{
+    s: { r: number; c: number };
+    e: { r: number; c: number };
+  }>;
+}
+
+interface MergeCellStatus {
+  rowSpan: number;
+  colSpan: number;
+  isHidden: boolean;
+}
+
+function checkCellMerge(rIdx: number, cIdx: number, merges?: any[]): MergeCellStatus {
+  if (!merges) return { rowSpan: 1, colSpan: 1, isHidden: false };
+
+  for (const m of merges) {
+    if (rIdx === m.s.r && cIdx === m.s.c) {
+      return {
+        rowSpan: m.e.r - m.s.r + 1,
+        colSpan: m.e.c - m.s.c + 1,
+        isHidden: false
+      };
+    }
+    if (rIdx >= m.s.r && rIdx <= m.e.r && cIdx >= m.s.c && cIdx <= m.e.c) {
+      return {
+        rowSpan: 1,
+        colSpan: 1,
+        isHidden: true
+      };
+    }
+  }
+
+  return { rowSpan: 1, colSpan: 1, isHidden: false };
+}
+
+interface Rule {
+  op: "range" | ">" | "<" | ">=" | "<=" | "unknown";
+  val1: number;
+  val2?: number;
+  isPercent: boolean;
+}
+
+function parseRule(str: string): Rule | null {
+  if (!str) return null;
+  let clean = str.toLowerCase().trim().replace(/\s+/g, "");
+  clean = clean.replace(/s\/d|sampai|to/g, "-");
+  
+  const isPercent = clean.includes("%");
+  const nums = clean.match(/[\d.,]+/g);
+  if (!nums) return null;
+
+  const parseNum = (s: string) => parseFloat(s.replace(",", "."));
+
+  if (clean.includes("-") && nums.length >= 2) {
+    const val1 = parseNum(nums[0]);
+    const val2 = parseNum(nums[1]);
+    return {
+      op: "range",
+      val1: Math.min(val1, val2),
+      val2: Math.max(val1, val2),
+      isPercent
+    };
+  }
+
+  let op: Rule["op"] = "unknown";
+  if (clean.startsWith(">=") || clean.startsWith("≥")) op = ">=";
+  else if (clean.startsWith("<=") || clean.startsWith("≤")) op = "<=";
+  else if (clean.startsWith(">")) op = ">";
+  else if (clean.startsWith("<")) op = "<";
+  else if (clean.startsWith("=") || clean.startsWith("==")) op = "range";
+
+  if (op !== "unknown") {
+    const val1 = parseNum(nums[0]);
+    return { op, val1, isPercent };
+  }
+
+  const val1 = parseNum(nums[0]);
+  return { op: "range", val1, val2: val1, isPercent };
+}
+
+function matchRule(valStr: string, rule: Rule): boolean {
+  if (!valStr) return false;
+  const cleanVal = valStr.trim();
+  const hasPercent = cleanVal.includes("%");
+  const numMatch = cleanVal.match(/[\d.,]+/);
+  if (!numMatch) return false;
+  let val = parseFloat(numMatch[0].replace(",", "."));
+
+  if (rule.isPercent && !hasPercent && val <= 1.0) {
+    val = val * 100;
+  }
+
+  switch (rule.op) {
+    case ">":
+      return val > rule.val1;
+    case "<":
+      return val < rule.val1;
+    case ">=":
+      return val >= rule.val1;
+    case "<=":
+      return val <= rule.val1;
+    case "range":
+      if (rule.val2 !== undefined) {
+        return val >= rule.val1 && val <= rule.val2;
+      }
+      return val === rule.val1;
+    default:
+      return false;
+  }
+}
+
+function getCellColorClass(
+  rIdx: number,
+  cIdx: number,
+  columns: string[],
+  row: string[]
+): string {
+  const colTypes = columns.map((col) => {
+    const name = col.toLowerCase().trim();
+    if (name.includes("hijau mud") || name.includes("hijau terang") || name.includes("hijau muda")) {
+      return "hijau_muda";
+    }
+    if (name.includes("hijau") || name.includes("appetite") || name.includes("target")) {
+      return "hijau_tua";
+    }
+    if (name.includes("kuning") || name.includes("yellow") || name.includes("jingga") || name.includes("oranye")) {
+      return "kuning";
+    }
+    if (name.includes("merah mud") || name.includes("merah mu") || name.includes("pink")) {
+      return "merah_muda";
+    }
+    if (name.includes("merah tu") || name.includes("merah") || name.includes("red")) {
+      return "merah_tua";
+    }
+    if (name.includes("parameter") || name.includes("rasio") || name.includes("indikator")) {
+      return "parameter";
+    }
+    return "realization";
+  });
+
+  if (colTypes[cIdx] !== "realization") {
+    return "";
+  }
+
+  const valStr = row[cIdx];
+  if (!valStr || valStr.trim() === "") return "";
+
+  for (let i = 0; i < colTypes.length; i++) {
+    const type = colTypes[i];
+    if (type === "realization" || type === "parameter") continue;
+
+    const ruleText = row[i];
+    if (!ruleText || ruleText.trim() === "") continue;
+
+    const rule = parseRule(ruleText);
+    if (rule && matchRule(valStr, rule)) {
+      switch (type) {
+        case "hijau_tua":
+          return "bg-green-600/20 text-green-800 dark:bg-green-600/30 dark:text-green-400 font-bold border-green-300 dark:border-green-800/60";
+        case "hijau_muda":
+          return "bg-teal-500/10 text-teal-700 dark:bg-teal-500/20 dark:text-teal-400 font-semibold border-teal-200 dark:border-teal-800/40";
+        case "kuning":
+          return "bg-amber-500/10 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400 font-semibold border-amber-200 dark:border-amber-800/40";
+        case "merah_muda":
+          return "bg-pink-500/10 text-pink-700 dark:bg-pink-500/20 dark:text-pink-400 font-semibold border-pink-200 dark:border-pink-800/40";
+        case "merah_tua":
+          return "bg-red-600/20 text-red-800 dark:bg-red-650/30 dark:text-red-400 font-extrabold border-red-300 dark:border-red-900/60";
+      }
+    }
+  }
+
+  return "";
 }
 
 function TableEditor({
@@ -92,6 +265,57 @@ function TableEditor({
   ]);
   const [activeSheetIdx, setActiveSheetIdx] = useState(0);
   const [showRowNumbers, setShowRowNumbers] = useState(true);
+  const [editingSheetIdx, setEditingSheetIdx] = useState<number | null>(null);
+  const [tempSheetName, setTempSheetName] = useState("");
+
+  const handleStartRenameSheet = (idx: number, currentName: string) => {
+    if (disabled) return;
+    setEditingSheetIdx(idx);
+    setTempSheetName(currentName);
+  };
+
+  const handleSaveSheetName = (idx: number) => {
+    if (!tempSheetName.trim()) {
+      setEditingSheetIdx(null);
+      return;
+    }
+    const nextSheets = [...sheets];
+    nextSheets[idx].name = tempSheetName.trim();
+    setSheets(nextSheets);
+    setEditingSheetIdx(null);
+  };
+
+  const getTabBgClass = (color?: string) => {
+    switch (color) {
+      case "green":
+        return "bg-green-600 text-white shadow-theme-xs hover:bg-green-700";
+      case "yellow":
+        return "bg-amber-500 text-white shadow-theme-xs hover:bg-amber-600";
+      case "red":
+        return "bg-red-600 text-white shadow-theme-xs hover:bg-red-700";
+      case "purple":
+        return "bg-purple-600 text-white shadow-theme-xs hover:bg-purple-700";
+      case "blue":
+      default:
+        return "bg-brand-500 text-white shadow-theme-xs hover:bg-brand-600";
+    }
+  };
+
+  const getHeaderBgClass = (color?: string) => {
+    switch (color) {
+      case "green":
+        return "bg-green-600 text-white dark:bg-green-700";
+      case "yellow":
+        return "bg-amber-500 text-white dark:bg-amber-600";
+      case "red":
+        return "bg-red-600 text-white dark:bg-red-700";
+      case "purple":
+        return "bg-purple-600 text-white dark:bg-purple-700";
+      case "blue":
+      default:
+        return "bg-brand-500 text-white dark:bg-brand-600";
+    }
+  };
 
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -107,13 +331,36 @@ function TableEditor({
         const importedSheets: SheetData[] = [];
         workbook.SheetNames.forEach((sheetName) => {
           const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
+          const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, raw: false });
           
           if (jsonData.length > 0) {
             const rawCols = jsonData[0];
             const parsedCols = rawCols.map((col: any, idx: number) => {
               const colStr = col !== null && col !== undefined ? col.toString().trim() : "";
               return colStr || `Kolom ${idx + 1}`;
+            });
+
+            const colTypes = parsedCols.map((col: string) => {
+              const name = col.toLowerCase().trim();
+              if (name.includes("hijau mud") || name.includes("hijau terang") || name.includes("hijau muda")) {
+                return "hijau_muda";
+              }
+              if (name.includes("hijau") || name.includes("appetite") || name.includes("target")) {
+                return "hijau_tua";
+              }
+              if (name.includes("kuning") || name.includes("yellow") || name.includes("jingga") || name.includes("oranye")) {
+                return "kuning";
+              }
+              if (name.includes("merah mud") || name.includes("merah mu") || name.includes("pink")) {
+                return "merah_muda";
+              }
+              if (name.includes("merah tu") || name.includes("merah") || name.includes("red")) {
+                return "merah_tua";
+              }
+              if (name.includes("parameter") || name.includes("rasio") || name.includes("indikator")) {
+                return "parameter";
+              }
+              return "realization";
             });
 
             const rawRows = jsonData.slice(1);
@@ -124,13 +371,52 @@ function TableEditor({
                   newRow[i] = row[i].toString();
                 }
               }
+
+              let rowIsPercent = false;
+              colTypes.forEach((type, idx) => {
+                if (type !== "realization" && type !== "parameter") {
+                  const val = newRow[idx];
+                  if (val && val.includes("%")) {
+                    rowIsPercent = true;
+                  }
+                }
+              });
+
+              if (rowIsPercent) {
+                colTypes.forEach((type, idx) => {
+                  if (type === "realization") {
+                    const valStr = newRow[idx];
+                    if (valStr && valStr.trim() !== "") {
+                      const valNum = parseFloat(valStr.replace(",", "."));
+                      if (!isNaN(valNum) && !valStr.includes("%")) {
+                        if (valNum <= 1.0) {
+                          const pct = parseFloat((valNum * 100).toFixed(4));
+                          newRow[idx] = `${pct}%`;
+                        } else {
+                          newRow[idx] = `${valNum}%`;
+                        }
+                      }
+                    }
+                  }
+                });
+              }
+
               return newRow;
             });
+
+            const rawMerges = worksheet["!merges"] || [];
+            const parsedMerges = rawMerges
+              .filter((m) => m.s.r > 0)
+              .map((m) => ({
+                s: { r: m.s.r - 1, c: m.s.c },
+                e: { r: m.e.r - 1, c: m.e.c }
+              }));
 
             importedSheets.push({
               name: sheetName,
               columns: parsedCols.length > 0 ? parsedCols : ["Kolom 1", "Kolom 2"],
-              rows: parsedRows.length > 0 ? parsedRows : [Array(parsedCols.length).fill("")]
+              rows: parsedRows.length > 0 ? parsedRows : [Array(parsedCols.length).fill("")],
+              merges: parsedMerges
             });
           }
         });
@@ -255,7 +541,7 @@ function TableEditor({
                 onClick={() => setActiveSheetIdx(sIdx)}
                 className={`px-2.5 py-1 text-[10px] sm:text-xs font-bold rounded-md cursor-pointer transition select-none ${
                   activeSheetIdx === sIdx
-                    ? "bg-brand-500 text-white shadow-theme-xs"
+                    ? getTabBgClass(sheet.color)
                     : "bg-gray-100 hover:bg-gray-200 text-gray-650 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
                 }`}
               >
@@ -267,13 +553,13 @@ function TableEditor({
 
         <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-800">
           <table className="min-w-full divide-y divide-gray-150 dark:divide-gray-850 text-left text-xs">
-            <thead className="bg-gray-55 dark:bg-gray-900/60 text-gray-500 dark:text-gray-400 font-bold">
+            <thead className={`${getHeaderBgClass(currentSheet.color)} font-bold`}>
               <tr>
                 {showRowNumbers && (
-                  <th className="px-3 py-2 border-r border-gray-150 dark:border-gray-800 w-12 text-center">No</th>
+                  <th className="px-3 py-2 border-r border-white/20 w-12 text-center text-white font-bold">No</th>
                 )}
                 {currentColumns.map((col, idx) => (
-                  <th key={idx} className="px-3 py-2 border-r border-gray-150 dark:border-gray-800 last:border-0">{col}</th>
+                  <th key={idx} className="px-3 py-2 border-r border-white/20 last:border-0 text-white font-bold">{col}</th>
                 ))}
               </tr>
             </thead>
@@ -285,9 +571,21 @@ function TableEditor({
                       {rIdx + 1}
                     </td>
                   )}
-                  {row.map((cell, cIdx) => (
-                    <td key={cIdx} className="px-3 py-2 border-r border-gray-150 dark:border-gray-800 last:border-0">{cell || "-"}</td>
-                  ))}
+                  {row.map((cell, cIdx) => {
+                    const { rowSpan, colSpan, isHidden } = checkCellMerge(rIdx, cIdx, currentSheet.merges);
+                    if (isHidden) return null;
+                    const colorClass = getCellColorClass(rIdx, cIdx, currentColumns, row);
+                    return (
+                      <td
+                        key={cIdx}
+                        rowSpan={rowSpan}
+                        colSpan={colSpan}
+                        className={`px-3 py-2 border-r border-gray-150 dark:border-gray-800 last:border-0 ${colorClass}`}
+                      >
+                        {cell || "-"}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -312,18 +610,38 @@ function TableEditor({
 
       <div className="flex flex-wrap gap-1.5 border-b border-gray-200 dark:border-gray-700 pb-2 items-center">
         {sheets.map((sheet, sIdx) => (
-          <div key={sIdx} className="flex items-center group">
-            <button
-              type="button"
-              onClick={() => setActiveSheetIdx(sIdx)}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition select-none ${
-                activeSheetIdx === sIdx
-                  ? "bg-brand-500 text-white shadow-theme-xs"
-                  : "bg-gray-100 hover:bg-gray-200 text-gray-650 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-750"
-              }`}
-            >
-              {sheet.name}
-            </button>
+          <div key={sIdx} className="flex items-center group relative">
+            {editingSheetIdx === sIdx ? (
+              <input
+                type="text"
+                value={tempSheetName}
+                onChange={(e) => setTempSheetName(e.target.value)}
+                onBlur={() => handleSaveSheetName(sIdx)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleSaveSheetName(sIdx);
+                  } else if (e.key === "Escape") {
+                    setEditingSheetIdx(null);
+                  }
+                }}
+                className="px-3 py-1.5 text-xs font-bold rounded-lg border border-brand-500 focus:outline-hidden bg-white dark:bg-gray-800 text-gray-800 dark:text-white w-28"
+                autoFocus
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setActiveSheetIdx(sIdx)}
+                onDoubleClick={() => handleStartRenameSheet(sIdx, sheet.name)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition select-none ${
+                  activeSheetIdx === sIdx
+                    ? getTabBgClass(sheet.color)
+                    : "bg-gray-100 hover:bg-gray-200 text-gray-650 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-750"
+                }`}
+                title="Double click untuk mengubah nama sheet"
+              >
+                {sheet.name}
+              </button>
+            )}
             {sheets.length > 1 && (
               <button
                 type="button"
@@ -351,6 +669,37 @@ function TableEditor({
         >
           + Tambah Sheet
         </button>
+
+        {/* Color picker for the active sheet */}
+        {!disabled && (
+          <div className="flex items-center gap-1.5 ml-auto pl-4 border-l border-gray-200 dark:border-gray-700">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Warna Tab:</span>
+            {(["blue", "green", "yellow", "red", "purple"] as const).map((color) => {
+              const bgClass =
+                color === "blue" ? "bg-brand-500" :
+                color === "green" ? "bg-green-600" :
+                color === "yellow" ? "bg-amber-500" :
+                color === "red" ? "bg-red-600" : "bg-purple-600";
+              return (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => {
+                    const nextSheets = [...sheets];
+                    nextSheets[activeSheetIdx].color = color;
+                    setSheets(nextSheets);
+                  }}
+                  className={`w-3.5 h-3.5 rounded-full ${bgClass} cursor-pointer transition transform hover:scale-125 border ${
+                    currentSheet.color === color || (color === "blue" && !currentSheet.color)
+                      ? "border-gray-800 dark:border-white ring-2 ring-brand-500/20"
+                      : "border-transparent"
+                  }`}
+                  title={`Ubah warna tab ke ${color}`}
+                />
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -397,27 +746,27 @@ function TableEditor({
 
         <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-left text-xs">
-            <thead className="bg-gray-100 dark:bg-gray-800">
+            <thead className={`${getHeaderBgClass(currentSheet.color)}`}>
               <tr>
                 {showRowNumbers && (
-                  <th className="px-2 py-1.5 border-r border-gray-200 dark:border-gray-700 w-12 text-center text-gray-500 dark:text-gray-400 font-bold">
+                  <th className="px-2 py-1.5 border-r border-white/20 w-12 text-center text-white font-bold">
                     No
                   </th>
                 )}
                 {currentColumns.map((col, idx) => (
-                  <th key={idx} className="px-2 py-1.5 border-r border-gray-200 dark:border-gray-700 last:border-0 min-w-[120px]">
+                  <th key={idx} className="px-2 py-1.5 border-r border-white/20 last:border-0 min-w-[120px]">
                     <div className="flex items-center gap-1">
                       <input
                         type="text"
                         value={col}
                         onChange={(e) => handleColumnHeaderChange(idx, e.target.value)}
-                        className="w-full bg-transparent font-bold focus:outline-hidden border-b border-dashed border-gray-300 dark:border-gray-600 text-gray-800 dark:text-white"
+                        className="w-full bg-transparent font-bold focus:outline-hidden border-b border-dashed border-white/40 text-white placeholder-white/70"
                       />
                       {currentColumns.length > 1 && (
                         <button
                           type="button"
                           onClick={() => handleRemoveColumn(idx)}
-                          className="text-gray-400 hover:text-error-500 font-extrabold px-1 cursor-pointer"
+                          className="text-white/60 hover:text-white font-extrabold px-1 cursor-pointer"
                           title="Hapus Kolom"
                         >
                           ×
@@ -437,17 +786,27 @@ function TableEditor({
                       {rIdx + 1}
                     </td>
                   )}
-                  {row.map((cell, cIdx) => (
-                    <td key={cIdx} className="px-2 py-1.5 border-r border-gray-200 dark:border-gray-700 last:border-0">
-                      <input
-                        type="text"
-                        value={cell}
-                        onChange={(e) => handleCellChange(rIdx, cIdx, e.target.value)}
-                        placeholder="Isi..."
-                        className="w-full bg-transparent focus:outline-hidden text-gray-750 dark:text-gray-250"
-                      />
-                    </td>
-                  ))}
+                  {row.map((cell, cIdx) => {
+                    const { rowSpan, colSpan, isHidden } = checkCellMerge(rIdx, cIdx, currentSheet.merges);
+                    if (isHidden) return null;
+                    const colorClass = getCellColorClass(rIdx, cIdx, currentColumns, row);
+                    return (
+                      <td
+                        key={cIdx}
+                        rowSpan={rowSpan}
+                        colSpan={colSpan}
+                        className={`px-2 py-1.5 border-r border-gray-200 dark:border-gray-700 last:border-0 ${colorClass}`}
+                      >
+                        <input
+                          type="text"
+                          value={cell}
+                          onChange={(e) => handleCellChange(rIdx, cIdx, e.target.value)}
+                          placeholder="Isi..."
+                          className="w-full bg-transparent focus:outline-hidden text-gray-750 dark:text-gray-250"
+                        />
+                      </td>
+                    );
+                  })}
                   <td className="px-2 py-1.5 text-center">
                     {currentRows.length > 1 && (
                       <button
@@ -713,13 +1072,36 @@ export default function MyTasksEmployeePage() {
           const importedSheets: SheetData[] = [];
           workbook.SheetNames.forEach((sheetName) => {
             const worksheet = workbook.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
+            const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, raw: false });
             
             if (jsonData.length > 0) {
               const rawCols = jsonData[0];
               const parsedCols = rawCols.map((col: any, idx: number) => {
                 const colStr = col !== null && col !== undefined ? col.toString().trim() : "";
                 return colStr || `Kolom ${idx + 1}`;
+              });
+
+              const colTypes = parsedCols.map((col: string) => {
+                const name = col.toLowerCase().trim();
+                if (name.includes("hijau mud") || name.includes("hijau terang") || name.includes("hijau muda")) {
+                  return "hijau_muda";
+                }
+                if (name.includes("hijau") || name.includes("appetite") || name.includes("target")) {
+                  return "hijau_tua";
+                }
+                if (name.includes("kuning") || name.includes("yellow") || name.includes("jingga") || name.includes("oranye")) {
+                  return "kuning";
+                }
+                if (name.includes("merah mud") || name.includes("merah mu") || name.includes("pink")) {
+                  return "merah_muda";
+                }
+                if (name.includes("merah tu") || name.includes("merah") || name.includes("red")) {
+                  return "merah_tua";
+                }
+                if (name.includes("parameter") || name.includes("rasio") || name.includes("indikator")) {
+                  return "parameter";
+                }
+                return "realization";
               });
 
               const rawRows = jsonData.slice(1);
@@ -730,13 +1112,52 @@ export default function MyTasksEmployeePage() {
                     newRow[i] = row[i].toString();
                   }
                 }
+
+                let rowIsPercent = false;
+                colTypes.forEach((type, idx) => {
+                  if (type !== "realization" && type !== "parameter") {
+                    const val = newRow[idx];
+                    if (val && val.includes("%")) {
+                      rowIsPercent = true;
+                    }
+                  }
+                });
+
+                if (rowIsPercent) {
+                  colTypes.forEach((type, idx) => {
+                    if (type === "realization") {
+                      const valStr = newRow[idx];
+                      if (valStr && valStr.trim() !== "") {
+                        const valNum = parseFloat(valStr.replace(",", "."));
+                        if (!isNaN(valNum) && !valStr.includes("%")) {
+                          if (valNum <= 1.0) {
+                            const pct = parseFloat((valNum * 100).toFixed(4));
+                            newRow[idx] = `${pct}%`;
+                          } else {
+                            newRow[idx] = `${valNum}%`;
+                          }
+                        }
+                      }
+                    }
+                  });
+                }
+
                 return newRow;
               });
+
+              const rawMerges = worksheet["!merges"] || [];
+              const parsedMerges = rawMerges
+                .filter((m) => m.s.r > 0)
+                .map((m) => ({
+                  s: { r: m.s.r - 1, c: m.s.c },
+                  e: { r: m.e.r - 1, c: m.e.c }
+                }));
 
               importedSheets.push({
                 name: sheetName,
                 columns: parsedCols.length > 0 ? parsedCols : ["Kolom 1", "Kolom 2"],
-                rows: parsedRows.length > 0 ? parsedRows : [Array(parsedCols.length).fill("")]
+                rows: parsedRows.length > 0 ? parsedRows : [Array(parsedCols.length).fill("")],
+                merges: parsedMerges
               });
             }
           });
@@ -992,7 +1413,7 @@ export default function MyTasksEmployeePage() {
                     )}
 
                     {/* SUBTASK CONTENT INPUTS */}
-                    {(!activeSub || isRejected) && (
+                    {(!activeSub || isRejected || isPending) && (
                       <div className="space-y-3">
                         {st.type === "link" && (
                           <div className="flex gap-2">
@@ -1050,7 +1471,7 @@ export default function MyTasksEmployeePage() {
                     )}
 
                     {/* READ-ONLY VIEW FOR SUBMITTED OR COMPLETED */}
-                    {(isPending || isCompleted) && activeSub && (
+                    {isCompleted && activeSub && (
                       <div className="bg-gray-50/50 dark:bg-white/[0.01] p-3.5 border border-gray-100 dark:border-gray-800 rounded-xl space-y-2.5">
                         <div className="flex items-center justify-between text-[10px] font-bold text-gray-400">
                           <span>Dikirim Oleh: {activeSub.submitted_by?.full_name || "Karyawan"}</span>
@@ -1138,7 +1559,10 @@ export default function MyTasksEmployeePage() {
                   </div>
                   <TableEditor
                     initialData={formTableData}
-                    onSubmit={(updatedData) => setFormTableData(updatedData)}
+                    onSubmit={(updatedData) => {
+                      setFormTableData(updatedData);
+                      showPopup("success", "Tabel berhasil disimpan ke draft laporan! Silakan lengkapi deskripsi dan klik 'Kirim Laporan' untuk mengirim ke Admin.");
+                    }}
                   />
                 </div>
               ) : (
@@ -1209,6 +1633,46 @@ export default function MyTasksEmployeePage() {
             </form>
           )}
         </div>
+        
+        {/* Pop up success / error message */}
+        <Modal isOpen={popupOpen} onClose={() => setPopupOpen(false)} className="max-w-[400px] p-6 text-center">
+          <div className="flex flex-col items-center justify-center space-y-4">
+            {popupType === "success" ? (
+              <div className="w-16 h-16 bg-success-50 dark:bg-success-500/10 text-success-500 rounded-full flex items-center justify-center">
+                <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+            ) : (
+              <div className="w-16 h-16 bg-error-50 dark:bg-error-500/10 text-error-500 rounded-full flex items-center justify-center">
+                <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
+            )}
+            
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+              {popupType === "success" ? "Berhasil" : "Gagal"}
+            </h3>
+            
+            <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+              {popupMessage}
+            </p>
+            
+            <div className="pt-2 w-full">
+              <button
+                onClick={() => setPopupOpen(false)}
+                className={`w-full py-2.5 rounded-xl text-white font-semibold transition ${
+                  popupType === "success" 
+                    ? "bg-brand-500 hover:bg-brand-600" 
+                    : "bg-error-500 hover:bg-error-600"
+                }`}
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </Modal>
       </div>
     );
   }
@@ -1358,7 +1822,9 @@ export default function MyTasksEmployeePage() {
                             )}
                           </div>
                         ) : (
-                          <span className="text-gray-400 text-xs">Belum dikerjakan</span>
+                          <span className="text-gray-450 dark:text-gray-400 text-xs font-medium">
+                            {task.status === "approved" ? "Selesai" : (task.status === "pending" || task.status === "rejected" ? "Sedang dikerjakan" : "Belum dikerjakan")}
+                          </span>
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
@@ -1466,7 +1932,7 @@ export default function MyTasksEmployeePage() {
         isFullscreen={isModalFullscreen}
         showFullscreenButton={true}
         onToggleFullscreen={() => setIsModalFullscreen(!isModalFullscreen)}
-        className={isModalFullscreen ? "w-screen h-screen max-w-full m-0 p-6 overflow-y-auto rounded-none bg-white dark:bg-gray-900" : "max-w-[550px] p-6"}
+        className={isModalFullscreen ? "w-screen h-screen max-w-full m-0 p-6 overflow-y-auto rounded-none bg-white dark:bg-gray-900" : "max-w-[900px] w-full p-6"}
       >
         <div className="space-y-4">
           <div className="border-b pb-3 dark:border-gray-800 pr-10 sm:pr-14">
@@ -1478,7 +1944,7 @@ export default function MyTasksEmployeePage() {
             </p>
           </div>
 
-          <div className="space-y-4">
+          <div className={isModalFullscreen ? "space-y-4" : "max-h-[70vh] overflow-y-auto pr-1.5 space-y-4"}>
             {/* Task Info */}
             <div className="space-y-1">
               <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Judul Tugas</span>

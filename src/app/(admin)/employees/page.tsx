@@ -30,6 +30,7 @@ export default function EmployeesPage() {
   const [email, setEmail] = useState("");
   const [npp, setNpp] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState("employee");
   const [unitId, setUnitId] = useState("");
   const [units, setUnits] = useState<Unit[]>([]);
   const [formLoading, setFormLoading] = useState(false);
@@ -209,7 +210,7 @@ export default function EmployeesPage() {
       username: username || null,
       email: email || null,
       npp: npp,
-      role: "employee",
+      role: role,
     };
 
     if (!useDefaultPassword) {
@@ -245,6 +246,7 @@ export default function EmployeesPage() {
       setEmail("");
       setNpp("");
       setPassword("");
+      setRole("employee");
 
       // Refresh list if active or registered
       fetchEmployees();
@@ -410,6 +412,18 @@ export default function EmployeesPage() {
                     maxLength={50}
                   />
                 </div>
+              </div>
+
+              <div>
+                <Label>Role Akun <span className="text-error-500">*</span></Label>
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  className="h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 text-sm shadow-theme-xs focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:focus:border-brand-800"
+                >
+                  <option value="employee">Karyawan Biasa</option>
+                  <option value="imam">Imam (Double Dashboard)</option>
+                </select>
               </div>
 
               {currentUser.role === "super_admin" ? (
@@ -594,6 +608,7 @@ export default function EmployeesPage() {
                     <th scope="col" className="px-6 py-4">Karyawan</th>
                     <th scope="col" className="px-6 py-4">NPP</th>
                     <th scope="col" className="px-6 py-4">Username</th>
+                    <th scope="col" className="px-6 py-4">Role</th>
                     <th scope="col" className="px-6 py-4">Divisi / Unit</th>
                     <th scope="col" className="px-6 py-4">Terdaftar</th>
                   </tr>
@@ -625,8 +640,13 @@ export default function EmployeesPage() {
                           <span className="text-xs text-gray-450 italic">Tidak diset</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-600 dark:text-gray-450 font-medium">
-                        {emp.username || <span className="text-xs text-gray-450 italic">Tidak diset</span>}
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-600 dark:text-gray-455 font-medium">
+                        {emp.username || <span className="text-xs text-gray-455 italic">Tidak diset</span>}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-purple-50 text-purple-700 dark:bg-purple-500/10 dark:text-purple-400 border border-purple-100 dark:border-purple-500/20">
+                          {emp.role === "imam" ? "Imam" : "Karyawan"}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400 border border-blue-100 dark:border-blue-500/20">

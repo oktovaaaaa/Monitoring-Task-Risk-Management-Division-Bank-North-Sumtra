@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter(authHandler *handler.AuthHandler, taskHandler *handler.TaskHandler, notifHandler *handler.NotificationHandler) *gin.Engine {
+func SetupRouter(authHandler *handler.AuthHandler, taskHandler *handler.TaskHandler, notifHandler *handler.NotificationHandler, imamHandler *handler.ImamHandler) *gin.Engine {
 	r := gin.Default()
 
 	// Ensure uploads directory exists and setup static file serving
@@ -83,11 +83,21 @@ func SetupRouter(authHandler *handler.AuthHandler, taskHandler *handler.TaskHand
 			tasks.GET("", taskHandler.GetTasks)
 			tasks.POST("", middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin), taskHandler.CreateTask)
 			tasks.PUT("/:id", middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin), taskHandler.UpdateTask)
-			tasks.POST("/:id/submit", middleware.RequireRole(models.RoleEmployee), taskHandler.SubmitTask)
+			tasks.POST("/:id/submit", middleware.RequireRole(models.RoleEmployee, models.RoleImam), taskHandler.SubmitTask)
 			tasks.POST("/:id/review", middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin), taskHandler.ReviewTask)
-			tasks.POST("/subtasks/:subtaskId/submit", middleware.RequireRole(models.RoleEmployee), taskHandler.SubmitSubTask)
+			tasks.POST("/subtasks/:subtaskId/submit", middleware.RequireRole(models.RoleEmployee, models.RoleImam), taskHandler.SubmitSubTask)
 			tasks.POST("/subtasks/:subtaskId/review", middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin), taskHandler.ReviewSubTask)
 			tasks.POST("/upload", taskHandler.UploadTaskFile)
+		}
+
+		// Imam routes
+		imam := api.Group("/imam")
+		imam.Use(middleware.AuthMiddleware(), middleware.RequireRole(models.RoleImam))
+		{
+			imam.GET("/submissions", imamHandler.GetSubmissions)
+			imam.POST("/submissions", imamHandler.CreateSubmission)
+			imam.PUT("/submissions/:id", imamHandler.UpdateSubmission)
+			imam.DELETE("/submissions/:id", imamHandler.DeleteSubmission)
 		}
 
 		// Notifications routes

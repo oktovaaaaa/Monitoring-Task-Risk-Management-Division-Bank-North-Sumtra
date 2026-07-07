@@ -77,6 +77,19 @@ const AppSidebar: React.FC = () => {
           name: "Tugas Saya",
           path: "/my-tasks",
         });
+      } else if (currentUser.role === "imam") {
+        items.push({
+          icon: <PageIcon />,
+          name: "Dashboard Imam",
+          path: "/imam-dashboard",
+        });
+        if (currentUser.unit_id || currentUser.unit) {
+          items.push({
+            icon: <ListIcon />,
+            name: "Tugas Saya",
+            path: "/my-tasks",
+          });
+        }
       }
     }
     return items;

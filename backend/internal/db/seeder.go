@@ -15,7 +15,7 @@ func SeedDatabase(db *gorm.DB) {
 	}
 
 	log.Println("Running AutoMigrations...")
-	err := db.AutoMigrate(&models.Unit{}, &models.User{}, &models.Captcha{}, &models.Setting{}, &models.Task{}, &models.Notification{}, &models.SubTask{}, &models.SubTaskSubmission{})
+	err := db.AutoMigrate(&models.Unit{}, &models.User{}, &models.Captcha{}, &models.Setting{}, &models.Task{}, &models.Notification{}, &models.SubTask{}, &models.SubTaskSubmission{}, &models.ImamSubmission{})
 	if err != nil {
 		log.Fatalf("AutoMigration failed: %v", err)
 	}

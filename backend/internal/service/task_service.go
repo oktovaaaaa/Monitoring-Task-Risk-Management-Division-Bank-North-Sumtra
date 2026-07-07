@@ -177,8 +177,8 @@ func (s *taskService) UpdateTask(taskID uuid.UUID, title, description string, un
 }
 
 func (s *taskService) GetTasks(userRole models.Role, userUnitID *uuid.UUID, filterUnitID *uuid.UUID) ([]models.Task, error) {
-	// If user is Employee, they only see tasks from their own unit
-	if userRole == models.RoleEmployee {
+	// If user is Employee or Imam, they only see tasks from their own unit
+	if userRole == models.RoleEmployee || userRole == models.RoleImam {
 		if userUnitID == nil {
 			return []models.Task{}, nil // No unit assigned
 		}

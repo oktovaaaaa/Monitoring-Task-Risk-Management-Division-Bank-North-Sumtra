@@ -75,6 +75,179 @@ interface SheetData {
   name: string;
   columns: string[];
   rows: string[][];
+  color?: string;
+  merges?: Array<{
+    s: { r: number; c: number };
+    e: { r: number; c: number };
+  }>;
+}
+
+interface MergeCellStatus {
+  rowSpan: number;
+  colSpan: number;
+  isHidden: boolean;
+}
+
+function checkCellMerge(rIdx: number, cIdx: number, merges?: any[]): MergeCellStatus {
+  if (!merges) return { rowSpan: 1, colSpan: 1, isHidden: false };
+
+  for (const m of merges) {
+    if (rIdx === m.s.r && cIdx === m.s.c) {
+      return {
+        rowSpan: m.e.r - m.s.r + 1,
+        colSpan: m.e.c - m.s.c + 1,
+        isHidden: false
+      };
+    }
+    if (rIdx >= m.s.r && rIdx <= m.e.r && cIdx >= m.s.c && cIdx <= m.e.c) {
+      return {
+        rowSpan: 1,
+        colSpan: 1,
+        isHidden: true
+      };
+    }
+  }
+
+  return { rowSpan: 1, colSpan: 1, isHidden: false };
+}
+
+interface Rule {
+  op: "range" | ">" | "<" | ">=" | "<=" | "unknown";
+  val1: number;
+  val2?: number;
+  isPercent: boolean;
+}
+
+function parseRule(str: string): Rule | null {
+  if (!str) return null;
+  let clean = str.toLowerCase().trim().replace(/\s+/g, "");
+  clean = clean.replace(/s\/d|sampai|to/g, "-");
+  
+  const isPercent = clean.includes("%");
+  const nums = clean.match(/[\d.,]+/g);
+  if (!nums) return null;
+
+  const parseNum = (s: string) => parseFloat(s.replace(",", "."));
+
+  if (clean.includes("-") && nums.length >= 2) {
+    const val1 = parseNum(nums[0]);
+    const val2 = parseNum(nums[1]);
+    return {
+      op: "range",
+      val1: Math.min(val1, val2),
+      val2: Math.max(val1, val2),
+      isPercent
+    };
+  }
+
+  let op: Rule["op"] = "unknown";
+  if (clean.startsWith(">=") || clean.startsWith("≥")) op = ">=";
+  else if (clean.startsWith("<=") || clean.startsWith("≤")) op = "<=";
+  else if (clean.startsWith(">")) op = ">";
+  else if (clean.startsWith("<")) op = "<";
+  else if (clean.startsWith("=") || clean.startsWith("==")) op = "range";
+
+  if (op !== "unknown") {
+    const val1 = parseNum(nums[0]);
+    return { op, val1, isPercent };
+  }
+
+  const val1 = parseNum(nums[0]);
+  return { op: "range", val1, val2: val1, isPercent };
+}
+
+function matchRule(valStr: string, rule: Rule): boolean {
+  if (!valStr) return false;
+  const cleanVal = valStr.trim();
+  const hasPercent = cleanVal.includes("%");
+  const numMatch = cleanVal.match(/[\d.,]+/);
+  if (!numMatch) return false;
+  let val = parseFloat(numMatch[0].replace(",", "."));
+
+  if (rule.isPercent && !hasPercent && val <= 1.0) {
+    val = val * 100;
+  }
+
+  switch (rule.op) {
+    case ">":
+      return val > rule.val1;
+    case "<":
+      return val < rule.val1;
+    case ">=":
+      return val >= rule.val1;
+    case "<=":
+      return val <= rule.val1;
+    case "range":
+      if (rule.val2 !== undefined) {
+        return val >= rule.val1 && val <= rule.val2;
+      }
+      return val === rule.val1;
+    default:
+      return false;
+  }
+}
+
+function getCellColorClass(
+  rIdx: number,
+  cIdx: number,
+  columns: string[],
+  row: string[]
+): string {
+  const colTypes = columns.map((col) => {
+    const name = col.toLowerCase().trim();
+    if (name.includes("hijau mud") || name.includes("hijau terang") || name.includes("hijau muda")) {
+      return "hijau_muda";
+    }
+    if (name.includes("hijau") || name.includes("appetite") || name.includes("target")) {
+      return "hijau_tua";
+    }
+    if (name.includes("kuning") || name.includes("yellow") || name.includes("jingga") || name.includes("oranye")) {
+      return "kuning";
+    }
+    if (name.includes("merah mud") || name.includes("merah mu") || name.includes("pink")) {
+      return "merah_muda";
+    }
+    if (name.includes("merah tu") || name.includes("merah") || name.includes("red")) {
+      return "merah_tua";
+    }
+    if (name.includes("parameter") || name.includes("rasio") || name.includes("indikator")) {
+      return "parameter";
+    }
+    return "realization";
+  });
+
+  if (colTypes[cIdx] !== "realization") {
+    return "";
+  }
+
+  const valStr = row[cIdx];
+  if (!valStr || valStr.trim() === "") return "";
+
+  for (let i = 0; i < colTypes.length; i++) {
+    const type = colTypes[i];
+    if (type === "realization" || type === "parameter") continue;
+
+    const ruleText = row[i];
+    if (!ruleText || ruleText.trim() === "") continue;
+
+    const rule = parseRule(ruleText);
+    if (rule && matchRule(valStr, rule)) {
+      switch (type) {
+        case "hijau_tua":
+          return "bg-green-600/20 text-green-800 dark:bg-green-600/30 dark:text-green-400 font-bold border-green-300 dark:border-green-800/60";
+        case "hijau_muda":
+          return "bg-teal-500/10 text-teal-700 dark:bg-teal-500/20 dark:text-teal-400 font-semibold border-teal-200 dark:border-teal-800/40";
+        case "kuning":
+          return "bg-amber-500/10 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400 font-semibold border-amber-200 dark:border-amber-800/40";
+        case "merah_muda":
+          return "bg-pink-500/10 text-pink-700 dark:bg-pink-500/20 dark:text-pink-400 font-semibold border-pink-200 dark:border-pink-800/40";
+        case "merah_tua":
+          return "bg-red-600/20 text-red-800 dark:bg-red-650/30 dark:text-red-400 font-extrabold border-red-300 dark:border-red-900/60";
+      }
+    }
+  }
+
+  return "";
 }
 
 function TableEditor({
@@ -90,6 +263,57 @@ function TableEditor({
   ]);
   const [activeSheetIdx, setActiveSheetIdx] = useState(0);
   const [showRowNumbers, setShowRowNumbers] = useState(true);
+  const [editingSheetIdx, setEditingSheetIdx] = useState<number | null>(null);
+  const [tempSheetName, setTempSheetName] = useState("");
+
+  const handleStartRenameSheet = (idx: number, currentName: string) => {
+    if (disabled) return;
+    setEditingSheetIdx(idx);
+    setTempSheetName(currentName);
+  };
+
+  const handleSaveSheetName = (idx: number) => {
+    if (!tempSheetName.trim()) {
+      setEditingSheetIdx(null);
+      return;
+    }
+    const nextSheets = [...sheets];
+    nextSheets[idx].name = tempSheetName.trim();
+    setSheets(nextSheets);
+    setEditingSheetIdx(null);
+  };
+
+  const getTabBgClass = (color?: string) => {
+    switch (color) {
+      case "green":
+        return "bg-green-600 text-white shadow-theme-xs hover:bg-green-700";
+      case "yellow":
+        return "bg-amber-500 text-white shadow-theme-xs hover:bg-amber-600";
+      case "red":
+        return "bg-red-600 text-white shadow-theme-xs hover:bg-red-700";
+      case "purple":
+        return "bg-purple-600 text-white shadow-theme-xs hover:bg-purple-700";
+      case "blue":
+      default:
+        return "bg-brand-500 text-white shadow-theme-xs hover:bg-brand-600";
+    }
+  };
+
+  const getHeaderBgClass = (color?: string) => {
+    switch (color) {
+      case "green":
+        return "bg-green-600 text-white dark:bg-green-700";
+      case "yellow":
+        return "bg-amber-500 text-white dark:bg-amber-600";
+      case "red":
+        return "bg-red-600 text-white dark:bg-red-700";
+      case "purple":
+        return "bg-purple-600 text-white dark:bg-purple-700";
+      case "blue":
+      default:
+        return "bg-brand-500 text-white dark:bg-brand-600";
+    }
+  };
 
   useEffect(() => {
     if (initialData) {
@@ -136,7 +360,7 @@ function TableEditor({
               onClick={() => setActiveSheetIdx(sIdx)}
               className={`px-2.5 py-1 text-[10px] sm:text-xs font-bold rounded-md cursor-pointer transition select-none ${
                 activeSheetIdx === sIdx
-                  ? "bg-brand-500 text-white shadow-theme-xs"
+                  ? getTabBgClass(sheet.color)
                   : "bg-gray-100 hover:bg-gray-200 text-gray-650 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
               }`}
             >
@@ -148,13 +372,13 @@ function TableEditor({
 
       <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-800">
         <table className="min-w-full divide-y divide-gray-150 dark:divide-gray-850 text-left text-xs">
-          <thead className="bg-gray-50 dark:bg-gray-900/60 text-gray-505 dark:text-gray-400 font-bold">
+          <thead className={`${getHeaderBgClass(currentSheet.color)} font-bold`}>
             <tr>
               {showRowNumbers && (
-                <th className="px-3 py-2 border-r border-gray-150 dark:border-gray-800 w-12 text-center">No</th>
+                <th className="px-3 py-2 border-r border-white/20 w-12 text-center text-white font-bold">No</th>
               )}
               {currentColumns.map((col, idx) => (
-                <th key={idx} className="px-3 py-2 border-r border-gray-150 dark:border-gray-800 last:border-0">{col}</th>
+                <th key={idx} className="px-3 py-2 border-r border-white/20 last:border-0 text-white font-bold">{col}</th>
               ))}
             </tr>
           </thead>
@@ -166,9 +390,21 @@ function TableEditor({
                     {rIdx + 1}
                   </td>
                 )}
-                {row.map((cell, cIdx) => (
-                  <td key={cIdx} className="px-3 py-2 border-r border-gray-150 dark:border-gray-800 last:border-0">{cell || "-"}</td>
-                ))}
+                {row.map((cell, cIdx) => {
+                  const { rowSpan, colSpan, isHidden } = checkCellMerge(rIdx, cIdx, currentSheet.merges);
+                  if (isHidden) return null;
+                  const colorClass = getCellColorClass(rIdx, cIdx, currentColumns, row);
+                  return (
+                    <td
+                      key={cIdx}
+                      rowSpan={rowSpan}
+                      colSpan={colSpan}
+                      className={`px-3 py-2 border-r border-gray-150 dark:border-gray-800 last:border-0 ${colorClass}`}
+                    >
+                      {cell || "-"}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
@@ -717,6 +953,46 @@ export default function TasksAdminPage() {
             </div>
           </form>
         </div>
+        
+        {/* Pop up success / error message */}
+        <Modal isOpen={popupOpen} onClose={() => setPopupOpen(false)} className="max-w-[400px] p-6 text-center">
+          <div className="flex flex-col items-center justify-center space-y-4">
+            {popupType === "success" ? (
+              <div className="w-16 h-16 bg-success-50 dark:bg-success-500/10 text-success-500 rounded-full flex items-center justify-center">
+                <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+            ) : (
+              <div className="w-16 h-16 bg-error-50 dark:bg-error-500/10 text-error-500 rounded-full flex items-center justify-center">
+                <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
+            )}
+            
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+              {popupType === "success" ? "Berhasil" : "Gagal"}
+            </h3>
+            
+            <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+              {popupMessage}
+            </p>
+            
+            <div className="pt-2 w-full">
+              <button
+                onClick={() => setPopupOpen(false)}
+                className={`w-full py-2.5 rounded-xl text-white font-semibold transition ${
+                  popupType === "success" 
+                    ? "bg-brand-500 hover:bg-brand-600" 
+                    : "bg-error-500 hover:bg-error-600"
+                }`}
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </Modal>
       </div>
     );
   }
@@ -900,7 +1176,9 @@ export default function TasksAdminPage() {
                             <div className="text-[10px] text-gray-400">{task.submitted_at ? new Date(task.submitted_at).toLocaleString() : ""}</div>
                           </div>
                         ) : (
-                          <span className="text-gray-400 text-xs">-</span>
+                          <span className="text-gray-450 dark:text-gray-400 text-xs font-medium">
+                            {task.status === "approved" ? "Selesai" : (task.status === "pending" || task.status === "rejected" ? "Sedang dikerjakan" : "Belum dikerjakan")}
+                          </span>
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
@@ -962,9 +1240,9 @@ export default function TasksAdminPage() {
         className={
           isModalFullscreen
             ? "w-screen h-screen max-w-full m-0 p-6 overflow-y-auto rounded-none bg-white dark:bg-gray-900"
-            : selectedTask?.sub_tasks && selectedTask.sub_tasks.length > 0
-            ? "max-w-[750px] w-full p-6 max-h-[85vh] overflow-y-auto"
-            : "max-w-[550px] p-6"
+            : (selectedTask?.sub_tasks && selectedTask.sub_tasks.length > 0) || selectedTask?.submission_table_data
+            ? "max-w-[900px] w-full p-6"
+            : "max-w-[600px] w-full p-6"
         }
       >
         <div className="space-y-4">
@@ -972,12 +1250,14 @@ export default function TasksAdminPage() {
             <h3 className="text-xl font-bold text-gray-900 dark:text-white">
               Tinjauan Tugas: {selectedTask?.title}
             </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-normal">
+            <p className="text-xs text-gray-505 dark:text-gray-400 mt-1 leading-normal">
               {selectedTask?.sub_tasks && selectedTask.sub_tasks.length > 0
                 ? "Tinjau hasil kerja untuk masing-masing sub-tugas yang telah dikirim."
                 : "Periksa deskripsi laporan pengerjaan dan berkas yang dikirim sebelum menyetujui."}
             </p>
           </div>
+
+          <div className={isModalFullscreen ? "space-y-4" : "max-h-[70vh] overflow-y-auto pr-1.5 space-y-4"}>
 
           {/* Subtask Progress Checklist */}
           {selectedTask?.sub_tasks && selectedTask.sub_tasks.length > 0 && (
@@ -1319,7 +1599,8 @@ export default function TasksAdminPage() {
                 </div>
               )}
             </>
-          )}
+            )}
+          </div>
         </div>
       </Modal>
 

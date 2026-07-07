@@ -34,9 +34,10 @@ func main() {
 	authHandler := handler.NewAuthHandler(authService, unitRepo, userRepo)
 	taskHandler := handler.NewTaskHandler(taskService)
 	notifHandler := handler.NewNotificationHandler(notifRepo)
+	imamHandler := handler.NewImamHandler(config.AppConfig.DB)
 
 	// Setup Routes
-	router := http.SetupRouter(authHandler, taskHandler, notifHandler)
+	router := http.SetupRouter(authHandler, taskHandler, notifHandler, imamHandler)
 
 	// Start Server
 	addr := fmt.Sprintf(":%s", config.AppConfig.Port)
