@@ -462,6 +462,15 @@ export default function TasksAdminPage() {
   const [popupType, setPopupType] = useState<"success" | "error">("success");
   const [popupMessage, setPopupMessage] = useState("");
 
+  // Delete Task states
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const [confirmStep, setConfirmStep] = useState<number>(0); // 0: closed, 1: first popup, 2: second popup
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Month & Pagination states
+  const [selectedMonth, setSelectedMonth] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
   const showPopup = (type: "success" | "error", message: string) => {
     setPopupType(type);
     setPopupMessage(message);
@@ -522,6 +531,88 @@ export default function TasksAdminPage() {
 
     setTasksLoading(false);
   };
+
+  const handleDeleteTask = async () => {
+    if (!deletingTaskId || !token) return;
+    setDeleteLoading(true);
+    try {
+      const res = await fetch(`http://localhost:8080/api/tasks/${deletingTaskId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      let result: any = {};
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        result = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(text || `HTTP error ${res.status}`);
+      }
+
+      if (!res.ok) {
+        throw new Error(result.message || "Gagal menghapus tugas");
+      }
+      showPopup("success", "Tugas berhasil dihapus secara permanen.");
+      setConfirmStep(0);
+      setDeletingTaskId(null);
+      fetchTasksAndUnits();
+    } catch (err: any) {
+      showPopup("error", err.message || "Terjadi kesalahan saat menghapus tugas.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const monthOptions = React.useMemo(() => {
+    const months = new Set<string>();
+    tasks.forEach((t) => {
+      if (t.created_at) {
+        try {
+          const d = new Date(t.created_at);
+          const monthName = d.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+          months.add(monthName);
+        } catch (e) {}
+      }
+    });
+    return Array.from(months);
+  }, [tasks]);
+
+  const filteredTasks = React.useMemo(() => {
+    let result = tasks;
+
+    // Filter by Unit
+    if (selectedFilterUnit !== "all") {
+      result = result.filter((t) => t.unit_id === selectedFilterUnit);
+    }
+
+    // Filter by Month
+    if (selectedMonth !== "all") {
+      result = result.filter((t) => {
+        if (!t.created_at) return false;
+        try {
+          const d = new Date(t.created_at);
+          const monthName = d.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+          return monthName === selectedMonth;
+        } catch {
+          return false;
+        }
+      });
+    }
+
+    return result;
+  }, [tasks, selectedFilterUnit, selectedMonth]);
+
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(filteredTasks.length / itemsPerPage);
+  const paginatedTasks = React.useMemo(() => {
+    const startIdx = (currentPage - 1) * itemsPerPage;
+    return filteredTasks.slice(startIdx, startIdx + itemsPerPage);
+  }, [filteredTasks, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedFilterUnit, selectedMonth]);
 
   const getTaskProgress = (task: Task) => {
     if (!task.sub_tasks || task.sub_tasks.length === 0) {
@@ -1085,20 +1176,40 @@ export default function TasksAdminPage() {
             <h2 className="text-lg font-bold text-gray-900 dark:text-white">
               Daftar Tugas Kelompok Unit
             </h2>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Filter Divisi:</span>
-              <select
-                value={selectedFilterUnit}
-                onChange={(e) => setSelectedFilterUnit(e.target.value)}
-                className="h-9 rounded-lg border border-gray-200 bg-white dark:bg-gray-900 px-3 text-xs font-semibold text-gray-700 dark:text-gray-300 dark:border-gray-850 shadow-theme-xs focus:border-brand-500 focus:outline-hidden cursor-pointer"
-              >
-                <option value="all">Semua Divisi / Unit</option>
-                {units.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
-              </select>
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Filter Bulan */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Bulan:</span>
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="h-9 rounded-lg border border-gray-200 bg-white dark:bg-gray-900 px-3 text-xs font-semibold text-gray-700 dark:text-gray-300 dark:border-gray-850 shadow-theme-xs focus:border-brand-500 focus:outline-hidden cursor-pointer"
+                >
+                  <option value="all">Semua Bulan</option>
+                  {monthOptions.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filter Divisi */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Filter Divisi:</span>
+                <select
+                  value={selectedFilterUnit}
+                  onChange={(e) => setSelectedFilterUnit(e.target.value)}
+                  className="h-9 rounded-lg border border-gray-200 bg-white dark:bg-gray-900 px-3 text-xs font-semibold text-gray-700 dark:text-gray-300 dark:border-gray-850 shadow-theme-xs focus:border-brand-500 focus:outline-hidden cursor-pointer"
+                >
+                  <option value="all">Semua Divisi / Unit</option>
+                  {units.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
@@ -1108,7 +1219,7 @@ export default function TasksAdminPage() {
                 <div className="animate-spin rounded-full h-10 w-10 border-4 border-brand-500 border-t-transparent"></div>
                 <p className="text-sm text-gray-500">Memuat data tugas...</p>
               </div>
-            ) : (selectedFilterUnit === "all" ? tasks : tasks.filter((t) => t.unit_id === selectedFilterUnit)).length === 0 ? (
+            ) : filteredTasks.length === 0 ? (
               <div className="text-center py-16 space-y-3">
                 <div className="w-16 h-16 bg-gray-100 dark:bg-gray-850 text-gray-400 rounded-full flex items-center justify-center mx-auto">
                   <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1117,13 +1228,14 @@ export default function TasksAdminPage() {
                 </div>
                 <h3 className="text-base font-bold text-gray-850 dark:text-white">Tidak Ada Tugas</h3>
                 <p className="text-sm text-gray-450 dark:text-gray-400 max-w-xs mx-auto">
-                  {selectedFilterUnit === "all"
+                  {selectedFilterUnit === "all" && selectedMonth === "all"
                     ? "Belum ada tugas yang didelegasikan ke unit kerja mana pun."
-                    : "Tidak ada tugas yang didelegasikan ke divisi ini."}
+                    : "Tidak ada tugas yang sesuai dengan kriteria saringan aktif Anda."}
                 </p>
               </div>
             ) : (
-              <table className="min-w-full divide-y divide-gray-150 dark:divide-gray-800 text-left">
+              <>
+                <table className="min-w-full divide-y divide-gray-150 dark:divide-gray-800 text-left">
                 <thead className="bg-gray-50 dark:bg-gray-900/60 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   <tr>
                     <th scope="col" className="px-6 py-4">Tugas</th>
@@ -1134,7 +1246,7 @@ export default function TasksAdminPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-transparent divide-y divide-gray-100 dark:divide-gray-800/80 text-sm">
-                  {(selectedFilterUnit === "all" ? tasks : tasks.filter((t) => t.unit_id === selectedFilterUnit)).map((task) => (
+                  {paginatedTasks.map((task) => (
                     <tr key={task.id} className="hover:bg-gray-50/50 dark:hover:bg-white/[0.01] transition-colors duration-150">
                       <td className="px-6 py-4">
                         <div className="font-bold text-gray-900 dark:text-white">{task.title}</div>
@@ -1208,11 +1320,20 @@ export default function TasksAdminPage() {
                             </button>
                           )}
 
-                          <button
+                           <button
                             onClick={() => openEditModal(task)}
                             className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-brand-500 hover:bg-brand-600 rounded-lg shadow-theme-xs transition cursor-pointer"
                           >
                             Edit
+                          </button>
+                          <button
+                            onClick={() => {
+                              setDeletingTaskId(task.id);
+                              setConfirmStep(1);
+                            }}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-error-500 hover:bg-error-600 rounded-lg shadow-theme-xs transition cursor-pointer"
+                          >
+                            Hapus
                           </button>
                         </div>
                       </td>
@@ -1220,7 +1341,49 @@ export default function TasksAdminPage() {
                   ))}
                 </tbody>
               </table>
+
+              {/* Paginasi Kontrol */}
+              {totalPages > 1 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-gray-100 dark:border-gray-800 pt-4 mt-4">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    Menampilkan <span className="font-semibold text-gray-700 dark:text-gray-200">{Math.min(filteredTasks.length, (currentPage - 1) * itemsPerPage + 1)}</span> sampai <span className="font-semibold text-gray-700 dark:text-gray-200">{Math.min(filteredTasks.length, currentPage * itemsPerPage)}</span> dari <span className="font-semibold text-gray-700 dark:text-gray-200">{filteredTasks.length}</span> tugas
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage(currentPage - 1)}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer transition select-none text-gray-700 dark:text-gray-300"
+                    >
+                      Sebelumnya
+                    </button>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => setCurrentPage(page)}
+                        className={`w-8 h-8 flex items-center justify-center text-xs font-bold rounded-lg cursor-pointer transition select-none ${
+                          currentPage === page
+                            ? "bg-brand-500 text-white"
+                            : "border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 text-gray-700 dark:text-gray-300"
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      disabled={currentPage === totalPages}
+                      onClick={() => setCurrentPage(currentPage + 1)}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer transition select-none text-gray-700 dark:text-gray-300"
+                    >
+                      Selanjutnya
+                    </button>
+                </div>
+              </div>
             )}
+          </>
+        )}
           </div>
         </div>
       </div>
@@ -1600,6 +1763,73 @@ export default function TasksAdminPage() {
               )}
             </>
             )}
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal Konfirmasi Hapus - Tahap 1 */}
+      <Modal 
+        isOpen={confirmStep === 1} 
+        onClose={() => { setConfirmStep(0); setDeletingTaskId(null); }} 
+        className="max-w-[420px] p-6 text-center"
+      >
+        <div className="flex flex-col items-center justify-center space-y-4">
+          <div className="w-14 h-14 bg-warning-50 dark:bg-warning-500/10 text-warning-500 rounded-full flex items-center justify-center">
+            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white">Hapus Tugas?</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 leading-normal">
+            Apakah Anda yakin ingin menghapus tugas ini? Unit kerja penerima tidak akan lagi dapat melihat atau mengirimkan laporan untuk tugas ini.
+          </p>
+          <div className="flex items-center gap-3 w-full pt-2">
+            <button
+              onClick={() => { setConfirmStep(0); setDeletingTaskId(null); }}
+              className="flex-1 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700 dark:hover:bg-white/[0.03] cursor-pointer"
+            >
+              Batal
+            </button>
+            <button
+              onClick={() => setConfirmStep(2)}
+              className="flex-1 py-2 text-xs font-bold text-white bg-warning-500 hover:bg-warning-600 rounded-xl transition cursor-pointer"
+            >
+              Lanjut
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal Konfirmasi Hapus - Tahap 2 (Final & Permanen) */}
+      <Modal 
+        isOpen={confirmStep === 2} 
+        onClose={() => { setConfirmStep(0); setDeletingTaskId(null); }} 
+        className="max-w-[420px] p-6 text-center"
+      >
+        <div className="flex flex-col items-center justify-center space-y-4">
+          <div className="w-14 h-14 bg-error-50 dark:bg-error-500/10 text-error-500 rounded-full flex items-center justify-center">
+            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-extrabold text-error-600 dark:text-error-450">Konfirmasi Penghapusan Permanen</h3>
+          <p className="text-xs font-semibold text-gray-555 dark:text-gray-400 leading-relaxed bg-error-50/30 dark:bg-error-500/5 border border-error-100/50 p-3 rounded-xl">
+            PERINGATAN: Tindakan ini bersifat permanen dan tidak dapat dibatalkan. Seluruh sub-tugas dan riwayat penginputan laporan yang berhubungan dengan tugas ini akan dihapus dari basis data.
+          </p>
+          <div className="flex items-center gap-3 w-full pt-2">
+            <button
+              onClick={() => { setConfirmStep(0); setDeletingTaskId(null); }}
+              className="flex-1 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700 dark:hover:bg-white/[0.03] cursor-pointer"
+            >
+              Batal
+            </button>
+            <button
+              onClick={handleDeleteTask}
+              disabled={deleteLoading}
+              className="flex-1 py-2 text-xs font-extrabold text-white bg-error-600 hover:bg-error-700 rounded-xl transition cursor-pointer disabled:opacity-50"
+            >
+              {deleteLoading ? "Menghapus..." : "Ya, Hapus Permanen"}
+            </button>
           </div>
         </div>
       </Modal>

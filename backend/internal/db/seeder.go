@@ -11,11 +11,13 @@ import (
 func SeedDatabase(db *gorm.DB) {
 	// Update existing users with NULL NPP to prevent migration failure
 	if db.Migrator().HasTable(&models.User{}) {
+		_ = db.Migrator().AlterColumn(&models.User{}, "Role")
 		db.Exec("UPDATE users SET npp = 'NPP-' || substring(id::text, 1, 8) WHERE npp IS NULL OR npp = ''")
+		db.Exec("UPDATE users SET role = 'market_liquidity_risk' WHERE role = 'imam'")
 	}
 
 	log.Println("Running AutoMigrations...")
-	err := db.AutoMigrate(&models.Unit{}, &models.User{}, &models.Captcha{}, &models.Setting{}, &models.Task{}, &models.Notification{}, &models.SubTask{}, &models.SubTaskSubmission{}, &models.ImamSubmission{})
+	err := db.AutoMigrate(&models.Unit{}, &models.User{}, &models.Captcha{}, &models.Setting{}, &models.Task{}, &models.Notification{}, &models.SubTask{}, &models.SubTaskSubmission{}, &models.ImamSubmission{}, &models.MacroDataPoint{})
 	if err != nil {
 		log.Fatalf("AutoMigration failed: %v", err)
 	}

@@ -18,6 +18,7 @@ type UserRepository interface {
 	Update(user *models.User) error
 	AssignUsersToUnit(userIDs []uuid.UUID, unitID uuid.UUID) error
 	FindAllAdmins() ([]models.User, error)
+	Delete(id uuid.UUID) error
 }
 
 type userRepository struct {
@@ -74,7 +75,7 @@ func (r *userRepository) Update(user *models.User) error {
 
 func (r *userRepository) FindAllEmployees() ([]models.User, error) {
 	var users []models.User
-	err := r.db.Preload("Unit").Where("role IN ?", []models.Role{models.RoleEmployee, models.RoleImam}).Find(&users).Error
+	err := r.db.Preload("Unit").Where("role IN ?", []models.Role{models.RoleEmployee, models.RoleMarketLiquidityRisk}).Find(&users).Error
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +84,7 @@ func (r *userRepository) FindAllEmployees() ([]models.User, error) {
 
 func (r *userRepository) FindEmployeesByUnit(unitID uuid.UUID) ([]models.User, error) {
 	var users []models.User
-	err := r.db.Preload("Unit").Where("role IN ? AND unit_id = ?", []models.Role{models.RoleEmployee, models.RoleImam}, unitID).Find(&users).Error
+	err := r.db.Preload("Unit").Where("role IN ? AND unit_id = ?", []models.Role{models.RoleEmployee, models.RoleMarketLiquidityRisk}, unitID).Find(&users).Error
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +93,7 @@ func (r *userRepository) FindEmployeesByUnit(unitID uuid.UUID) ([]models.User, e
 
 func (r *userRepository) AssignUsersToUnit(userIDs []uuid.UUID, unitID uuid.UUID) error {
 	tx := r.db.Begin()
-	allowedRoles := []models.Role{models.RoleEmployee, models.RoleImam}
+	allowedRoles := []models.Role{models.RoleEmployee, models.RoleMarketLiquidityRisk}
 	if err := tx.Model(&models.User{}).Where("unit_id = ? AND role IN ?", unitID, allowedRoles).Update("unit_id", nil).Error; err != nil {
 		tx.Rollback()
 		return err
@@ -110,4 +111,8 @@ func (r *userRepository) FindAllAdmins() ([]models.User, error) {
 	var users []models.User
 	err := r.db.Where("role = ? OR role = ?", models.RoleSuperAdmin, models.RoleUnitAdmin).Find(&users).Error
 	return users, err
+}
+
+func (r *userRepository) Delete(id uuid.UUID) error {
+	return r.db.Delete(&models.User{}, "id = ?", id).Error
 }

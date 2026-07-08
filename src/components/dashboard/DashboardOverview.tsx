@@ -146,7 +146,7 @@ export default function DashboardOverview() {
 
   // Determine user role
   const isAdmin = currentUser && (currentUser.role === "super_admin" || currentUser.role === "unit_admin");
-  const isEmployee = currentUser && (currentUser.role === "employee" || currentUser.role === "imam");
+  const isEmployee = currentUser && (currentUser.role === "employee" || currentUser.role === "market_liquidity_risk");
 
   // Fallback to default Admin dashboard if user is not employee and selected showOldDashboard
   if ((!isEmployee && showOldDashboard) || (!isAdmin && !isEmployee)) {

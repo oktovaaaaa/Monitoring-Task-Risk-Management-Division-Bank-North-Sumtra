@@ -18,6 +18,7 @@ type TaskService interface {
 	ReviewTask(taskID, adminID uuid.UUID, action string, rejectionReason string) error
 	SubmitSubTask(subTaskID, userID uuid.UUID, linkValue, fileURL, tableData string) error
 	ReviewSubTask(subTaskID, adminID uuid.UUID, submissionID uuid.UUID, action string, rejectionReason string) error
+	DeleteTask(taskID uuid.UUID) error
 }
 
 type taskService struct {
@@ -178,7 +179,7 @@ func (s *taskService) UpdateTask(taskID uuid.UUID, title, description string, un
 
 func (s *taskService) GetTasks(userRole models.Role, userUnitID *uuid.UUID, filterUnitID *uuid.UUID) ([]models.Task, error) {
 	// If user is Employee or Imam, they only see tasks from their own unit
-	if userRole == models.RoleEmployee || userRole == models.RoleImam {
+	if userRole == models.RoleEmployee || userRole == models.RoleMarketLiquidityRisk {
 		if userUnitID == nil {
 			return []models.Task{}, nil // No unit assigned
 		}
@@ -500,4 +501,12 @@ func (s *taskService) ReviewSubTask(subTaskID, adminID uuid.UUID, submissionID u
 	}
 
 	return nil
+}
+
+func (s *taskService) DeleteTask(taskID uuid.UUID) error {
+	_, err := s.taskRepo.FindByID(taskID)
+	if err != nil {
+		return errors.New("tugas tidak ditemukan")
+	}
+	return s.taskRepo.Delete(taskID)
 }

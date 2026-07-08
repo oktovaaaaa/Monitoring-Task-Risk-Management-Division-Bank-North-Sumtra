@@ -453,3 +453,28 @@ func (h *TaskHandler) ReviewSubTask(c *gin.Context) {
 		Message: "Review sub-task berhasil disimpan",
 	})
 }
+
+func (h *TaskHandler) DeleteTask(c *gin.Context) {
+	idStr := c.Param("id")
+	taskID, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.CommonResponse{
+			Status:  "error",
+			Message: "ID tugas tidak valid",
+		})
+		return
+	}
+
+	if err := h.taskService.DeleteTask(taskID); err != nil {
+		c.JSON(http.StatusInternalServerError, models.CommonResponse{
+			Status:  "error",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.CommonResponse{
+		Status:  "success",
+		Message: "Tugas berhasil dihapus",
+	})
+}

@@ -212,7 +212,7 @@ export default function NotificationDropdown() {
         </ul>
 
         <Link
-          href={(currentUser?.role === "employee" || currentUser?.role === "imam") ? "/my-tasks" : "/tasks"}
+          href={(currentUser?.role === "employee" || currentUser?.role === "market_liquidity_risk") ? "/my-tasks" : "/tasks"}
           onClick={closeDropdown}
           className="block px-4 py-2 mt-3 text-xs font-semibold text-center text-gray-700 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-350 dark:hover:bg-gray-750 transition"
         >

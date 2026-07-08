@@ -75,6 +75,29 @@ export default function MarketRiskChart({ tableDataList }: MarketRiskChartProps)
     };
   }, [tableDataList]);
 
+  // Track which series names are checked/active
+  const [activeSeriesNames, setActiveSeriesNames] = React.useState<string[]>([]);
+
+  // Automatically check only USD/IDR by default on first load
+  React.useEffect(() => {
+    if (chartData && chartData.series.length > 0 && activeSeriesNames.length === 0) {
+      const usdSeries = chartData.series.find((s: any) => {
+        const lower = s.name.toLowerCase().trim();
+        return lower.includes("nilai tukar usd") || lower.includes("usd/idr") || lower.includes("usd idr") || lower.includes("nilai tukar");
+      });
+      if (usdSeries) {
+        setActiveSeriesNames([usdSeries.name]);
+      } else {
+        setActiveSeriesNames([chartData.series[0].name]);
+      }
+    }
+  }, [chartData, activeSeriesNames]);
+
+  const filteredSeries = React.useMemo(() => {
+    if (!chartData) return [];
+    return chartData.series.filter((s: any) => activeSeriesNames.includes(s.name));
+  }, [chartData, activeSeriesNames]);
+
   if (!chartData) {
     return (
       <div className="bg-white border border-gray-200 rounded-3xl dark:bg-white/[0.03] dark:border-gray-800 p-6 shadow-sm flex flex-col items-center justify-center text-center min-h-[300px]">
@@ -84,24 +107,20 @@ export default function MarketRiskChart({ tableDataList }: MarketRiskChartProps)
           </svg>
         </div>
         <h4 className="text-sm font-bold text-gray-900 dark:text-white">Tren Harian Market Risk</h4>
-        <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xs mt-1">
+        <p className="text-xs text-gray-550 dark:text-gray-400 max-w-xs mt-1">
           Grafik garis akan otomatis terbentuk setelah Anda mengisi dan mengirimkan data sheet "Market Risk" dengan kolom tanggal harian.
         </p>
       </div>
     );
   }
 
+  const seriesColors = ["#465FFF", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899"];
+
   const options: ApexOptions = {
     legend: {
-      show: true,
-      position: "top",
-      horizontalAlign: "left",
-      fontFamily: "Outfit, sans-serif",
-      labels: {
-        colors: "#667085",
-      },
+      show: false, // Hide default legend
     },
-    colors: ["#465FFF", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899"],
+    colors: chartData.series.map((s: any, idx: number) => seriesColors[idx % seriesColors.length]),
     chart: {
       fontFamily: "Outfit, sans-serif",
       type: "line",
@@ -181,10 +200,44 @@ export default function MarketRiskChart({ tableDataList }: MarketRiskChartProps)
         </p>
       </div>
 
+      {/* Interactive Legend Badges */}
+      <div className="flex flex-wrap gap-2.5 mb-5">
+        {chartData.series.map((s: any, idx: number) => {
+          const isActive = activeSeriesNames.includes(s.name);
+          const color = seriesColors[idx % seriesColors.length];
+          const activeBgClass = "bg-purple-50/50 border-purple-200 text-purple-700 dark:bg-purple-500/5 dark:border-purple-900/50 dark:text-purple-400 shadow-xs";
+          const inactiveBgClass = "bg-gray-50/50 border-gray-200 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:bg-gray-900/50 dark:border-gray-800 dark:hover:bg-white/5 dark:hover:text-gray-300";
+
+          return (
+            <button
+              key={s.name}
+              type="button"
+              onClick={() => {
+                if (isActive) {
+                  // Keep at least one series active to avoid blank chart
+                  if (activeSeriesNames.length > 1) {
+                    setActiveSeriesNames(activeSeriesNames.filter(n => n !== s.name));
+                  }
+                } else {
+                  setActiveSeriesNames([...activeSeriesNames, s.name]);
+                }
+              }}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full border text-xs font-bold transition duration-200 cursor-pointer select-none ${isActive ? activeBgClass : inactiveBgClass}`}
+            >
+              <span 
+                className="w-2.5 h-2.5 rounded-full transition-all duration-200" 
+                style={{ backgroundColor: color, transform: isActive ? "scale(1.15)" : "scale(0.85)" }} 
+              />
+              <span>{s.name}</span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="w-full">
         <ReactApexChart
           options={options}
-          series={chartData.series}
+          series={filteredSeries}
           type="line"
           height={320}
         />

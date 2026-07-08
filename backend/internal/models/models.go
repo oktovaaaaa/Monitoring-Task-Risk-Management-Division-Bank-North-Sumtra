@@ -13,7 +13,7 @@ const (
 	RoleSuperAdmin Role = "super_admin"
 	RoleUnitAdmin  Role = "unit_admin"
 	RoleEmployee   Role = "employee"
-	RoleImam       Role = "imam"
+	RoleMarketLiquidityRisk Role = "market_liquidity_risk"
 )
 
 type Unit struct {
@@ -33,7 +33,7 @@ type User struct {
 	AvatarURL    *string        `gorm:"type:text" json:"avatar_url"`
 	PasswordHash string         `gorm:"type:varchar(255);not null" json:"-"`
 	FullName     string         `gorm:"type:varchar(100);not null" json:"full_name"`
-	Role         Role           `gorm:"type:varchar(20);not null" json:"role"`
+	Role         Role           `gorm:"type:varchar(50);not null" json:"role"`
 	UnitID       *uuid.UUID     `gorm:"type:uuid" json:"unit_id"`
 	Unit         *Unit          `gorm:"foreignKey:UnitID" json:"unit,omitempty"`
 	CreatedAt    time.Time      `json:"created_at"`
@@ -191,5 +191,27 @@ func (is *ImamSubmission) BeforeCreate(tx *gorm.DB) (err error) {
 	}
 	return
 }
+
+// MacroDataPoint stores a single historical data point for Makro Monitoring.
+// Each row in the table editor is represented as one MacroDataPoint.
+// Multiple updates in the same month (e.g. weekly inflation) are stored as separate rows.
+type MacroDataPoint struct {
+	ID         uuid.UUID `gorm:"type:uuid;primary_key;" json:"id"`
+	DataType   string    `gorm:"type:varchar(255);not null;index" json:"data_type"` // e.g. "Suku Bunga The Fed"
+	DataDate   time.Time `gorm:"not null;index" json:"data_date"`                   // the period date, can be manually set
+	Value      string    `gorm:"type:text;not null" json:"value"`                   // e.g. "4.50", "2.13%", "12,7 M"
+	IsAutoDate bool      `gorm:"type:boolean;not null;default:false" json:"is_auto_date"` // true if date was auto-filled (today)
+	CreatedBy  uuid.UUID `gorm:"type:uuid;not null;index" json:"created_by"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+func (m *MacroDataPoint) BeforeCreate(tx *gorm.DB) (err error) {
+	if m.ID == uuid.Nil {
+		m.ID = uuid.New()
+	}
+	return
+}
+
 
 

@@ -40,6 +40,11 @@ export default function EmployeesPage() {
   const [employeesLoading, setEmployeesLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"register" | "list">("register");
 
+  // Edit & Delete Employee states
+  const [editingEmployee, setEditingEmployee] = useState<any | null>(null);
+  const [newRole, setNewRole] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
+
   // Search & Filter states
   const [searchQuery, setSearchQuery] = useState("");
   const [filterUnit, setFilterUnit] = useState("");
@@ -258,6 +263,69 @@ export default function EmployeesPage() {
     }
   };
 
+  const handleUpdateRole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEmployee || !token) return;
+    setActionLoading(true);
+
+    try {
+      const res = await fetch(`http://localhost:8080/api/employees/${editingEmployee.id}/role`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ role: newRole }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || "Gagal memperbarui role karyawan.");
+      }
+
+      showPopup("success", `Role karyawan "${editingEmployee.full_name}" berhasil diperbarui menjadi ${newRole === "market_liquidity_risk" ? "Market & Liquidity Risk" : "Karyawan"}!`);
+      setEditingEmployee(null);
+      fetchEmployees();
+    } catch (err: any) {
+      showPopup("error", err.message || "Terjadi kesalahan.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteEmployee = async (emp: any) => {
+    if (!token) return;
+    if (emp.id === currentUser?.id) {
+      showPopup("error", "Anda tidak dapat menghapus akun Anda sendiri.");
+      return;
+    }
+    if (!confirm(`Apakah Anda yakin ingin menghapus karyawan "${emp.full_name}" secara permanen?`)) {
+      return;
+    }
+    setActionLoading(true);
+
+    try {
+      const res = await fetch(`http://localhost:8080/api/employees/${emp.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || "Gagal menghapus karyawan.");
+      }
+
+      showPopup("success", `Karyawan "${emp.full_name}" berhasil dihapus dari sistem!`);
+      fetchEmployees();
+    } catch (err: any) {
+      showPopup("error", err.message || "Terjadi kesalahan.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // Helper date formatter
   const formatDate = (dateStr: string) => {
     if (!dateStr) return "-";
@@ -422,7 +490,7 @@ export default function EmployeesPage() {
                   className="h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 text-sm shadow-theme-xs focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:focus:border-brand-800"
                 >
                   <option value="employee">Karyawan Biasa</option>
-                  <option value="imam">Imam (Double Dashboard)</option>
+                  <option value="market_liquidity_risk">Market & Liquidity Risk</option>
                 </select>
               </div>
 
@@ -611,6 +679,7 @@ export default function EmployeesPage() {
                     <th scope="col" className="px-6 py-4">Role</th>
                     <th scope="col" className="px-6 py-4">Divisi / Unit</th>
                     <th scope="col" className="px-6 py-4">Terdaftar</th>
+                    <th scope="col" className="px-6 py-4 text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-transparent divide-y divide-gray-100 dark:divide-gray-800/80 text-sm">
@@ -645,7 +714,7 @@ export default function EmployeesPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-purple-50 text-purple-700 dark:bg-purple-500/10 dark:text-purple-400 border border-purple-100 dark:border-purple-500/20">
-                          {emp.role === "imam" ? "Imam" : "Karyawan"}
+                          {emp.role === "market_liquidity_risk" ? "Market & Liquidity Risk" : "Karyawan"}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -655,6 +724,31 @@ export default function EmployeesPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-gray-550 dark:text-gray-400">
                         {formatDate(emp.created_at)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => {
+                              setEditingEmployee(emp);
+                              setNewRole(emp.role);
+                            }}
+                            className="inline-flex items-center justify-center p-2 rounded-lg bg-gray-50 hover:bg-gray-150 text-gray-500 hover:text-purple-600 border border-gray-200 dark:bg-gray-900/50 dark:border-gray-800 dark:text-gray-400 dark:hover:text-purple-400 transition"
+                            title="Edit Peran"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteEmployee(emp)}
+                            className="inline-flex items-center justify-center p-2 rounded-lg bg-error-50/10 hover:bg-error-50 border border-error-100 hover:border-error-200 text-error-550 transition"
+                            title="Hapus Karyawan"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -703,6 +797,47 @@ export default function EmployeesPage() {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Edit Role Modal */}
+      <Modal isOpen={!!editingEmployee} onClose={() => setEditingEmployee(null)} className="max-w-[450px] p-6">
+        <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+          Edit Peran Karyawan
+        </h2>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-6">
+          Ubah peran akses untuk karyawan <strong>{editingEmployee?.full_name}</strong> (NPP: {editingEmployee?.npp}).
+        </p>
+
+        <form onSubmit={handleUpdateRole} className="space-y-4">
+          <div>
+            <Label>Peran / Role Baru <span className="text-error-500">*</span></Label>
+            <select
+              value={newRole}
+              onChange={(e) => setNewRole(e.target.value)}
+              className="h-11 w-full rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 text-sm shadow-theme-xs focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:focus:border-brand-800"
+            >
+              <option value="employee">Karyawan Biasa</option>
+              <option value="market_liquidity_risk">Market & Liquidity Risk</option>
+            </select>
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <button
+              type="button"
+              onClick={() => setEditingEmployee(null)}
+              className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-750 dark:border-gray-800 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 font-semibold transition"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={actionLoading}
+              className="flex-1 py-2.5 rounded-xl text-white bg-brand-500 hover:bg-brand-600 font-semibold transition disabled:opacity-50"
+            >
+              {actionLoading ? "Menyimpan..." : "Simpan Perubahan"}
+            </button>
+          </div>
+        </form>
       </Modal>
     </div>
   );

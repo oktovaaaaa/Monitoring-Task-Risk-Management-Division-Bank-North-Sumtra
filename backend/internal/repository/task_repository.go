@@ -18,6 +18,7 @@ type TaskRepository interface {
 	UpdateSubTaskSubmission(sub *models.SubTaskSubmission) error
 	DeleteSubTaskSubmissions(subTaskID uuid.UUID) error
 	DeleteSubTask(id uuid.UUID) error
+	Delete(id uuid.UUID) error
 	CreateSubTask(st *models.SubTask) error
 	UpdateSubTask(st *models.SubTask) error
 }
@@ -118,6 +119,10 @@ func (r *taskRepository) DeleteSubTaskSubmissions(subTaskID uuid.UUID) error {
 
 func (r *taskRepository) DeleteSubTask(id uuid.UUID) error {
 	return r.db.Where("id = ?", id).Delete(&models.SubTask{}).Error
+}
+
+func (r *taskRepository) Delete(id uuid.UUID) error {
+	return r.db.Where("id = ?", id).Delete(&models.Task{}).Error
 }
 
 func (r *taskRepository) CreateSubTask(st *models.SubTask) error {

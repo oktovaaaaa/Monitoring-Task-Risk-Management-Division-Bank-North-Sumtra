@@ -77,11 +77,11 @@ const AppSidebar: React.FC = () => {
           name: "Tugas Saya",
           path: "/my-tasks",
         });
-      } else if (currentUser.role === "imam") {
+      } else if (currentUser.role === "market_liquidity_risk") {
         items.push({
           icon: <PageIcon />,
-          name: "Dashboard Imam",
-          path: "/imam-dashboard",
+          name: "Market & Liquidity Risk",
+          path: "/market-liquidity-risk-dashboard",
         });
         if (currentUser.unit_id || currentUser.unit) {
           items.push({
@@ -309,20 +309,20 @@ const AppSidebar: React.FC = () => {
           {isExpanded || isHovered || isMobileOpen ? (
             <>
               <img
-                className="dark:hidden w-[55px] h-[55px] object-contain"
-                src="/images/sumut.png?v=1"
+                className="dark:hidden w-[140px] h-[40px] object-contain"
+                src="/images/baksumuticon.png"
                 alt="Logo"
               />
               <img
-                className="hidden dark:block w-[55px] h-[55px] object-contain"
-                src="/images/sumut.png?v=1"
+                className="hidden dark:block w-[140px] h-[40px] object-contain"
+                src="/images/baksumuticon.png"
                 alt="Logo"
               />
             </>
           ) : (
             <img
-              className="w-[32px] h-[32px] object-contain"
-              src="/images/sumut.png?v=1"
+              className="w-[40px] h-[40px] object-contain"
+              src="/images/baksumuticon.png"
               alt="Logo"
             />
           )}

@@ -420,3 +420,90 @@ func (h *AuthHandler) AssignEmployeesToUnit(c *gin.Context) {
 	})
 }
 
+func (h *AuthHandler) UpdateEmployeeRole(c *gin.Context) {
+	idStr := c.Param("id")
+	userID, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.CommonResponse{
+			Status:  "error",
+			Message: "ID tidak valid",
+		})
+		return
+	}
+
+	var req struct {
+		Role models.Role `json:"role" binding:"required,oneof=super_admin unit_admin employee market_liquidity_risk"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.CommonResponse{
+			Status:  "error",
+			Message: "Role tidak valid: " + err.Error(),
+		})
+		return
+	}
+
+	// Fetch user
+	user, err := h.userRepo.FindByID(userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.CommonResponse{
+			Status:  "error",
+			Message: "Karyawan tidak ditemukan",
+		})
+		return
+	}
+
+	// Update role
+	user.Role = req.Role
+	if err := h.userRepo.Update(user); err != nil {
+		c.JSON(http.StatusInternalServerError, models.CommonResponse{
+			Status:  "error",
+			Message: "Gagal memperbarui role: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.CommonResponse{
+		Status:  "success",
+		Message: "Role karyawan berhasil diperbarui",
+	})
+}
+
+func (h *AuthHandler) DeleteEmployee(c *gin.Context) {
+	idStr := c.Param("id")
+	userID, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.CommonResponse{
+			Status:  "error",
+			Message: "ID tidak valid",
+		})
+		return
+	}
+
+	// Verify it's not the user deleting themselves
+	currentUserIDVal, exists := c.Get("userId")
+	if exists {
+		if currentUserIDStr, ok := currentUserIDVal.(string); ok {
+			if currentUserID, err := uuid.Parse(currentUserIDStr); err == nil && currentUserID == userID {
+				c.JSON(http.StatusBadRequest, models.CommonResponse{
+					Status:  "error",
+					Message: "Anda tidak dapat menghapus akun Anda sendiri",
+				})
+				return
+			}
+		}
+	}
+
+	if err := h.userRepo.Delete(userID); err != nil {
+		c.JSON(http.StatusInternalServerError, models.CommonResponse{
+			Status:  "error",
+			Message: "Gagal menghapus karyawan: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.CommonResponse{
+		Status:  "success",
+		Message: "Karyawan berhasil dihapus",
+	})
+}
+

@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter(authHandler *handler.AuthHandler, taskHandler *handler.TaskHandler, notifHandler *handler.NotificationHandler, imamHandler *handler.ImamHandler) *gin.Engine {
+func SetupRouter(authHandler *handler.AuthHandler, taskHandler *handler.TaskHandler, notifHandler *handler.NotificationHandler, imamHandler *handler.ImamHandler, macroHandler *handler.MacroHandler) *gin.Engine {
 	r := gin.Default()
 
 	// Ensure uploads directory exists and setup static file serving
@@ -66,6 +66,8 @@ func SetupRouter(authHandler *handler.AuthHandler, taskHandler *handler.TaskHand
 		employees.Use(middleware.AuthMiddleware(), middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin))
 		{
 			employees.GET("", authHandler.GetEmployees)
+			employees.PUT("/:id/role", authHandler.UpdateEmployeeRole)
+			employees.DELETE("/:id", authHandler.DeleteEmployee)
 		}
 
 		// Settings routes
@@ -83,16 +85,17 @@ func SetupRouter(authHandler *handler.AuthHandler, taskHandler *handler.TaskHand
 			tasks.GET("", taskHandler.GetTasks)
 			tasks.POST("", middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin), taskHandler.CreateTask)
 			tasks.PUT("/:id", middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin), taskHandler.UpdateTask)
-			tasks.POST("/:id/submit", middleware.RequireRole(models.RoleEmployee, models.RoleImam), taskHandler.SubmitTask)
+			tasks.DELETE("/:id", middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin), taskHandler.DeleteTask)
+			tasks.POST("/:id/submit", middleware.RequireRole(models.RoleEmployee, models.RoleMarketLiquidityRisk), taskHandler.SubmitTask)
 			tasks.POST("/:id/review", middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin), taskHandler.ReviewTask)
-			tasks.POST("/subtasks/:subtaskId/submit", middleware.RequireRole(models.RoleEmployee, models.RoleImam), taskHandler.SubmitSubTask)
+			tasks.POST("/subtasks/:subtaskId/submit", middleware.RequireRole(models.RoleEmployee, models.RoleMarketLiquidityRisk), taskHandler.SubmitSubTask)
 			tasks.POST("/subtasks/:subtaskId/review", middleware.RequireRole(models.RoleSuperAdmin, models.RoleUnitAdmin), taskHandler.ReviewSubTask)
 			tasks.POST("/upload", taskHandler.UploadTaskFile)
 		}
 
-		// Imam routes
-		imam := api.Group("/imam")
-		imam.Use(middleware.AuthMiddleware(), middleware.RequireRole(models.RoleImam))
+		// Market & Liquidity Risk routes
+		imam := api.Group("/market-liquidity-risk")
+		imam.Use(middleware.AuthMiddleware(), middleware.RequireRole(models.RoleMarketLiquidityRisk))
 		{
 			imam.GET("/submissions", imamHandler.GetSubmissions)
 			imam.POST("/submissions", imamHandler.CreateSubmission)
@@ -106,6 +109,18 @@ func SetupRouter(authHandler *handler.AuthHandler, taskHandler *handler.TaskHand
 		{
 			notifications.GET("", notifHandler.GetNotifications)
 			notifications.POST("/read", notifHandler.MarkNotificationsRead)
+		}
+
+		// Macro Data routes (historical data points for Makro Monitoring)
+		macro := api.Group("/macro-data")
+		macro.Use(middleware.AuthMiddleware())
+		{
+			macro.GET("", macroHandler.GetDataPoints)
+			macro.GET("/types", macroHandler.GetDataTypes)
+			macro.POST("", middleware.RequireRole(models.RoleMarketLiquidityRisk, models.RoleSuperAdmin), macroHandler.CreateDataPoint)
+			macro.POST("/batch", middleware.RequireRole(models.RoleMarketLiquidityRisk, models.RoleSuperAdmin), macroHandler.BatchUpsertDataPoints)
+			macro.PUT("/:id", middleware.RequireRole(models.RoleMarketLiquidityRisk, models.RoleSuperAdmin), macroHandler.UpdateDataPoint)
+			macro.DELETE("/:id", middleware.RequireRole(models.RoleMarketLiquidityRisk, models.RoleSuperAdmin), macroHandler.DeleteDataPoint)
 		}
 	}
 
