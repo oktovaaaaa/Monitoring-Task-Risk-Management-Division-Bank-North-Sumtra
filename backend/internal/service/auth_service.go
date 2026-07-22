@@ -8,6 +8,8 @@ import (
 	"errors"
 	"time"
 
+	"strings"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/steambap/captcha"
@@ -52,7 +54,10 @@ func NewAuthService(
 func (s *authService) GenerateCaptcha() (*models.CaptchaResponse, error) {
 	_ = s.captchaRepo.CleanExpired()
 
-	img, err := captcha.New(200, 64)
+	img, err := captcha.New(200, 64, func(opts *captcha.Options) {
+		opts.CharPreset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+		opts.TextLength = 5
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +102,7 @@ func (s *authService) Login(req models.LoginRequest) (*models.AuthResponse, erro
 		return nil, errors.New("captcha has expired")
 	}
 
-	if captcha.Code != req.CaptchaAnswer {
+	if !strings.EqualFold(captcha.Code, req.CaptchaAnswer) {
 		return nil, errors.New("incorrect captcha answer")
 	}
 
@@ -167,8 +172,8 @@ func (s *authService) Register(req models.RegisterRequest, creatorRole models.Ro
 		}
 
 	case models.RoleUnitAdmin:
-		if req.Role != models.RoleEmployee {
-			return nil, errors.New("unit_admin can only register employee")
+		if req.Role != models.RoleEmployee && req.Role != models.RoleMarketLiquidityRisk && req.Role != models.RoleCyber {
+			return nil, errors.New("unit_admin can only register employee, market_liquidity_risk, or cyber roles")
 		}
 		if creatorUnitID == nil {
 			return nil, errors.New("unit_admin must be associated with a unit to register employees")

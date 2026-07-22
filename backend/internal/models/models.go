@@ -14,6 +14,7 @@ const (
 	RoleUnitAdmin  Role = "unit_admin"
 	RoleEmployee   Role = "employee"
 	RoleMarketLiquidityRisk Role = "market_liquidity_risk"
+	RoleCyber      Role = "cyber"
 )
 
 type Unit struct {
@@ -209,6 +210,31 @@ type MacroDataPoint struct {
 func (m *MacroDataPoint) BeforeCreate(tx *gorm.DB) (err error) {
 	if m.ID == uuid.Nil {
 		m.ID = uuid.New()
+	}
+	return
+}
+
+type CyberSubmission struct {
+	ID          uuid.UUID      `gorm:"type:uuid;primary_key;" json:"id"`
+	Year        int            `gorm:"type:integer;not null;unique" json:"year"`
+	BankName    string         `gorm:"type:varchar(255);not null" json:"bank_name"`
+	Assessor    string         `gorm:"type:varchar(255);not null" json:"assessor"`
+	Scores      string         `gorm:"type:text" json:"scores"`   // JSON-serialized score map
+	Refs        string         `gorm:"type:text" json:"refs"`     // JSON-serialized document ref map
+	Units       string         `gorm:"type:text" json:"units"`    // JSON-serialized unit map
+	Anz         string         `gorm:"type:text" json:"anz"`      // JSON-serialized analysis comments map
+	AnzEd       string         `gorm:"type:text" json:"anz_ed"`   // JSON-serialized dirty/edited flags
+	Matrices    string         `gorm:"type:text" json:"matrices"` // JSON-serialized edited matrices
+	UserID      uuid.UUID      `gorm:"type:uuid;not null" json:"user_id"`
+	User        *User          `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+func (cs *CyberSubmission) BeforeCreate(tx *gorm.DB) (err error) {
+	if cs.ID == uuid.Nil {
+		cs.ID = uuid.New()
 	}
 	return
 }

@@ -71,6 +71,11 @@ const AppSidebar: React.FC = () => {
           name: "Kelola Tugas",
           path: "/tasks",
         });
+        items.push({
+          icon: <PageIcon />,
+          name: "Penilaian Risiko Siber",
+          path: "/cyber-risk-dashboard",
+        });
       } else if (currentUser.role === "employee") {
         items.push({
           icon: <ListIcon />,
@@ -82,6 +87,19 @@ const AppSidebar: React.FC = () => {
           icon: <PageIcon />,
           name: "Market & Liquidity Risk",
           path: "/market-liquidity-risk-dashboard",
+        });
+        if (currentUser.unit_id || currentUser.unit) {
+          items.push({
+            icon: <ListIcon />,
+            name: "Tugas Saya",
+            path: "/my-tasks",
+          });
+        }
+      } else if (currentUser.role === "cyber") {
+        items.push({
+          icon: <PageIcon />,
+          name: "Penilaian Risiko Siber",
+          path: "/cyber-risk-dashboard",
         });
         if (currentUser.unit_id || currentUser.unit) {
           items.push({

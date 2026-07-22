@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter(authHandler *handler.AuthHandler, taskHandler *handler.TaskHandler, notifHandler *handler.NotificationHandler, imamHandler *handler.ImamHandler, macroHandler *handler.MacroHandler) *gin.Engine {
+func SetupRouter(authHandler *handler.AuthHandler, taskHandler *handler.TaskHandler, notifHandler *handler.NotificationHandler, imamHandler *handler.ImamHandler, macroHandler *handler.MacroHandler, cyberHandler *handler.CyberHandler) *gin.Engine {
 	r := gin.Default()
 
 	// Ensure uploads directory exists and setup static file serving
@@ -101,6 +101,18 @@ func SetupRouter(authHandler *handler.AuthHandler, taskHandler *handler.TaskHand
 			imam.POST("/submissions", imamHandler.CreateSubmission)
 			imam.PUT("/submissions/:id", imamHandler.UpdateSubmission)
 			imam.DELETE("/submissions/:id", imamHandler.DeleteSubmission)
+		}
+
+		// Cyber Risk routes
+		cyber := api.Group("/cyber-risk")
+		cyber.Use(middleware.AuthMiddleware(), middleware.RequireRole(models.RoleCyber, models.RoleSuperAdmin, models.RoleUnitAdmin))
+		{
+			cyber.GET("/submissions", cyberHandler.GetSubmissions)
+			cyber.GET("/submissions/:year", cyberHandler.GetSubmissionByYear)
+			cyber.POST("/submissions", cyberHandler.SaveSubmission)
+			cyber.DELETE("/submissions/:year", cyberHandler.DeleteSubmission)
+			cyber.GET("/export/:year", cyberHandler.ExportSubmission)
+			cyber.GET("/pdf/:year", cyberHandler.ExportPDF)
 		}
 
 		// Notifications routes

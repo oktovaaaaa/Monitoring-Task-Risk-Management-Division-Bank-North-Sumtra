@@ -60,7 +60,80 @@ export default function DashboardOverview() {
   // Data states
   const [tasks, setTasks] = useState<Task[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
+  const [cyberSubmissions, setCyberSubmissions] = useState<any[]>([]);
+  const [selectedRecapYear, setSelectedRecapYear] = useState<number>(new Date().getFullYear());
   const [loading, setLoading] = useState(false);
+
+  // Helper to parse submissions scores and compute category averages
+  const calculateYearStats = (sub: any) => {
+    if (!sub) return null;
+    let scoresMap: Record<string, any> = {};
+    try {
+      scoresMap = typeof sub.scores === "string" ? JSON.parse(sub.scores || "{}") : (sub.scores || {});
+    } catch (e) {
+      console.error("Error parsing sub scores", e);
+    }
+
+    const getAvg = (codes: string[]) => {
+      const vals = codes
+        .map((c) => scoresMap[c])
+        .filter((v) => v !== undefined && v !== null && v !== "" && !isNaN(Number(v)))
+        .map(Number);
+      return vals.length > 0 ? parseFloat((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)) : 0;
+    };
+
+    // Subcategories for Inherent Risk
+    const teknologiCodes = Array.from({ length: 10 }, (_, i) => `1.${i + 1}`);
+    const produkCodes = Array.from({ length: 5 }, (_, i) => `2.${i + 1}`);
+    const karakterCodes = Array.from({ length: 3 }, (_, i) => `3.${i + 1}`);
+    const rekamCodes = Array.from({ length: 2 }, (_, i) => `4.${i + 1}`);
+
+    const avgTek = getAvg(teknologiCodes);
+    const avgProd = getAvg(produkCodes);
+    const avgChar = getAvg(karakterCodes);
+    const avgRec = getAvg(rekamCodes);
+
+    // Inherent risk average
+    const avgInh = parseFloat(((avgTek + avgProd + avgChar + avgRec) / 4).toFixed(2));
+
+    // KPMR codes
+    const kpmrCodes = [
+      "1.1.a", "1.1.b", "1.2.a", "1.2.b", "1.3.a", "1.3.b", "1.3.c",
+      "2.1.a", "2.1.b", "2.1.c", "2.1.d", "2.2.a", "2.2.b", "2.2.c", "2.2.d",
+      "2.3.a", "2.3.b", "2.3.c", "2.3.d", "2.3.e", "2.3.f", "2.3.g", "2.3.h",
+      "2.3.i", "2.3.j", "2.3.k", "2.3.l", "2.3.m",
+      "3.1.a", "3.1.b", "3.1.c", "3.1.d", "3.1.e", "3.1.f", "3.1.g", "3.1.h",
+      "3.2.a", "3.2.b", "3.2.c", "3.2.d", "3.2.e", "3.2.f", "3.2.g",
+      "3.3.a", "3.3.b", "3.3.c", "3.3.d", "3.3.e",
+      "4.1.a", "4.1.b", "4.1.c", "4.1.d",
+      "4.2.a", "4.2.b", "4.2.c", "4.2.d", "4.2.e"
+    ];
+    const avgKpmr = getAvg(kpmrCodes);
+
+    // Ketahanan codes
+    const ketaCodes = [
+      "1.a", "1.b", "1.c",
+      "2.a", "2.b", "2.c", "2.d", "2.e", "2.f", "2.g", "2.h", "2.i", "2.j",
+      "3.a", "3.b", "3.c", "3.d", "3.e",
+      "4.a", "4.b", "4.c", "4.d", "4.e", "4.f"
+    ];
+    const avgKeta = getAvg(ketaCodes);
+
+    // Maturitas average
+    const avgMat = parseFloat(((avgKpmr + avgKeta) / 2).toFixed(2));
+
+    return {
+      year: sub.year,
+      avgTek,
+      avgProd,
+      avgChar,
+      avgRec,
+      avgInh,
+      avgKpmr,
+      avgKeta,
+      avgMat
+    };
+  };
 
   useEffect(() => {
     setIsClient(true);
@@ -106,6 +179,23 @@ export default function DashboardOverview() {
               setUnits(fetchedUnits);
             }
           }
+
+          // Fetch cyber submissions if role is cyber or admin
+          const isCyberOrAdmin = currentUser.role === "cyber" || currentUser.role === "super_admin" || currentUser.role === "unit_admin";
+          if (isCyberOrAdmin) {
+            const cyberRes = await fetch("http://localhost:8080/api/cyber-risk/submissions", {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (cyberRes.ok) {
+              const data = await cyberRes.json();
+              if (data.status === "success" && data.data) {
+                setCyberSubmissions(data.data || []);
+                if (data.data.length > 0) {
+                  setSelectedRecapYear(data.data[0].year);
+                }
+              }
+            }
+          }
         } catch (err) {
           console.error("Failed to load dashboard data:", err);
         } finally {
@@ -135,6 +225,195 @@ export default function DashboardOverview() {
     return list;
   }, [tasks]);
 
+  // --- Calculations for Cyber Risk Recap Dashboard ---
+  const cyberStatsHistory = React.useMemo(() => {
+    return cyberSubmissions
+      .map((sub) => calculateYearStats(sub))
+      .filter((x): x is Exclude<typeof x, null> => x !== null)
+      .sort((a, b) => a.year - b.year);
+  }, [cyberSubmissions]);
+
+  const activeYearStats = React.useMemo(() => {
+    const sub = cyberSubmissions.find((s) => s.year === selectedRecapYear);
+    return calculateYearStats(sub);
+  }, [cyberSubmissions, selectedRecapYear]);
+
+  // Band calculation helpers for Cyber Risk Recap
+  const getBand = (n: number | null) => {
+    if (n === null || n === undefined) return 0;
+    if (n <= 1) return 1;
+    if (n <= 2) return 2;
+    if (n <= 3) return 3;
+    if (n <= 4) return 4;
+    return 5;
+  };
+
+  const NM = {
+    inh: { 0: "—", 1: "LOW", 2: "LOW TO MODERATE", 3: "MODERATE", 4: "MODERATE TO HIGH", 5: "HIGH" } as Record<number, string>,
+    kpmr: { 0: "—", 1: "STRONG", 2: "SATISFACTORY", 3: "FAIR", 4: "MARGINAL", 5: "UNSATISFACTORY" } as Record<number, string>,
+    keta: { 0: "—", 1: "STRONG", 2: "SATISFACTORY", 3: "FAIR", 4: "MARGINAL", 5: "UNSATISFACTORY" } as Record<number, string>,
+    mat: { 0: "—", 1: "TINGKAT 1", 2: "TINGKAT 2", 3: "TINGKAT 3", 4: "TINGKAT 4", 5: "TINGKAT 5" } as Record<number, string>,
+    risk: { 0: "—", 1: "LOW", 2: "LOW TO MODERATE", 3: "MODERATE", 4: "MODERATE TO HIGH", 5: "HIGH" } as Record<number, string>
+  };
+
+  const C = {
+    0: "#94a3b8",
+    1: "#10b981", // Emerald
+    2: "#5f9a2f", // Light Green
+    3: "#cf9c05", // Yellow
+    4: "#dd7a1f", // Orange
+    5: "#c0392b"  // Red
+  } as Record<number, string>;
+
+  // Trend Chart Series and Options
+  const trendChartSeries = [
+    {
+      name: "Risiko Inheren",
+      data: cyberStatsHistory.map((s) => s.avgInh)
+    },
+    {
+      name: "KPMR Siber",
+      data: cyberStatsHistory.map((s) => s.avgKpmr)
+    },
+    {
+      name: "Ketahanan Siber",
+      data: cyberStatsHistory.map((s) => s.avgKeta)
+    },
+    {
+      name: "Maturitas Siber",
+      data: cyberStatsHistory.map((s) => s.avgMat)
+    }
+  ];
+
+  const trendChartOptions: ApexOptions = {
+    legend: {
+      show: true,
+      position: "top",
+      horizontalAlign: "left",
+      fontSize: "11px",
+      fontFamily: "Inter"
+    },
+    colors: ["#ea580c", "#475569", "#10b981", "#3b82f6"],
+    chart: {
+      type: "line",
+      height: 320,
+      fontFamily: "Outfit, sans-serif",
+      toolbar: {
+        show: false
+      }
+    },
+    stroke: {
+      width: 3,
+      curve: "smooth"
+    },
+    xaxis: {
+      categories: cyberStatsHistory.map((s) => s.year.toString()),
+      labels: {
+        style: {
+          colors: "#64748b",
+          fontSize: "11px"
+        }
+      }
+    },
+    yaxis: {
+      min: 1,
+      max: 5,
+      tickAmount: 4,
+      labels: {
+        formatter: (val) => val.toFixed(1),
+        style: {
+          colors: "#64748b",
+          fontSize: "11px"
+        }
+      }
+    },
+    tooltip: {
+      x: {
+        show: true
+      }
+    }
+  };
+
+  // Category Breakdown Chart (Bar Chart)
+  const breakdownSeries = [
+    {
+      name: "Skor Rata-Rata",
+      data: activeYearStats ? [
+        activeYearStats.avgTek,
+        activeYearStats.avgProd,
+        activeYearStats.avgChar,
+        activeYearStats.avgRec,
+        activeYearStats.avgKpmr,
+        activeYearStats.avgKeta
+      ] : []
+    }
+  ];
+
+  const breakdownOptions: ApexOptions = {
+    colors: ["#465FFF"],
+    chart: {
+      type: "bar",
+      height: 320,
+      fontFamily: "Outfit, sans-serif",
+      toolbar: {
+        show: false
+      }
+    },
+    plotOptions: {
+      bar: {
+        borderRadius: 6,
+        horizontal: true,
+        barHeight: "50%",
+        dataLabels: {
+          position: "right"
+        }
+      }
+    },
+    dataLabels: {
+      enabled: true,
+      textAnchor: "start",
+      style: {
+        colors: ["#0f172a"],
+        fontSize: "11px",
+        fontWeight: "bold"
+      },
+      formatter: (val: number) => val.toFixed(2),
+      offsetX: 10
+    },
+    xaxis: {
+      categories: [
+        "A. Teknologi",
+        "B. Produk Bank",
+        "C. Karakteristik Org.",
+        "D. Rekam Jejak Insiden",
+        "E. KPMR Siber",
+        "F. Ketahanan Siber"
+      ],
+      min: 1,
+      max: 5,
+      labels: {
+        style: {
+          colors: "#64748b",
+          fontSize: "10px"
+        }
+      }
+    },
+    yaxis: {
+      labels: {
+        style: {
+          colors: "#475569",
+          fontSize: "11px",
+          fontWeight: "bold"
+        }
+      }
+    },
+    tooltip: {
+      y: {
+        formatter: (val) => `${val.toFixed(2)} (Skor 1-5)`
+      }
+    }
+  };
+
   // If page hasn't mounted on client, show a loading spinner
   if (!isClient) {
     return (
@@ -146,7 +425,7 @@ export default function DashboardOverview() {
 
   // Determine user role
   const isAdmin = currentUser && (currentUser.role === "super_admin" || currentUser.role === "unit_admin");
-  const isEmployee = currentUser && (currentUser.role === "employee" || currentUser.role === "market_liquidity_risk");
+  const isEmployee = currentUser && (currentUser.role === "employee" || currentUser.role === "market_liquidity_risk" || currentUser.role === "cyber");
 
   // Fallback to default Admin dashboard if user is not employee and selected showOldDashboard
   if ((!isEmployee && showOldDashboard) || (!isAdmin && !isEmployee)) {
@@ -207,6 +486,8 @@ export default function DashboardOverview() {
   const totalTasksProgressSum = tasks.reduce((sum, t) => sum + getTaskProgress(t), 0);
   const completionPercentage =
     totalTasks > 0 ? parseFloat((totalTasksProgressSum / totalTasks).toFixed(1)) : 0;
+
+
 
   // Chart configuration for radial progress bar
   const chartSeries = [completionPercentage];
@@ -318,6 +599,176 @@ export default function DashboardOverview() {
           <div className="absolute right-0 top-0 h-48 w-48 rounded-full bg-brand-500/5 blur-3xl pointer-events-none"></div>
           <div className="absolute -bottom-8 -right-8 h-32 w-32 rounded-full bg-brand-400/10 blur-2xl pointer-events-none"></div>
         </div>
+
+        {/* Cyber Risk Recap Dashboard (Only for role 'cyber' or admin) */}
+        {(currentUser.role === "cyber" || currentUser.role === "super_admin") && cyberSubmissions.length > 0 && (
+          <div className="space-y-6">
+            {/* Header section with year selector */}
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-white border border-gray-200 rounded-3xl dark:bg-white/[0.03] dark:border-gray-800 p-6 shadow-sm">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                  Rekapitulasi Penilaian Keamanan Siber Tahunan
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Ringkasan historis tingkat kematangan dan profil risiko keamanan siber
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Pilih Tahun:</span>
+                <select
+                  value={selectedRecapYear}
+                  onChange={(e) => setSelectedRecapYear(Number(e.target.value))}
+                  className="bg-gray-50 border border-gray-300 dark:bg-gray-900 dark:border-gray-800 text-gray-950 dark:text-white text-xs rounded-xl px-3 py-1.5 focus:outline-hidden focus:border-brand-500 font-semibold cursor-pointer"
+                >
+                  {cyberSubmissions.map((sub) => (
+                    <option key={sub.year} value={sub.year}>
+                      Tahun {sub.year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Selected year KPI cards */}
+            {activeYearStats && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 1. Risiko Inheren */}
+                <div className="rounded-3xl border border-orange-200 dark:border-orange-950/20 bg-orange-50/10 p-5 shadow-theme-xs flex flex-col justify-between">
+                  <div className="flex justify-between items-center text-xs font-semibold text-orange-700 dark:text-orange-400 uppercase tracking-wider">
+                    <span>Risiko Inheren</span>
+                    <span className="opacity-60">(20 Parameter)</span>
+                  </div>
+                  <div className="mt-4 flex items-baseline gap-2">
+                    <span className="text-3xl font-extrabold tracking-tight text-gray-900 dark:text-white">
+                      {activeYearStats.avgInh.toFixed(2)}
+                    </span>
+                    <span
+                      style={{ backgroundColor: C[getBand(activeYearStats.avgInh)] }}
+                      className="text-[9px] font-bold text-white px-2.5 py-0.5 rounded-full uppercase"
+                    >
+                      {NM.inh[getBand(activeYearStats.avgInh)]}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. KPMR Siber */}
+                <div className="rounded-3xl border border-slate-200 dark:border-slate-800/40 bg-slate-50/20 p-5 shadow-theme-xs flex flex-col justify-between">
+                  <div className="flex justify-between items-center text-xs font-semibold text-slate-700 dark:text-slate-400 uppercase tracking-wider">
+                    <span>KPMR Siber</span>
+                    <span className="opacity-60">(56 Parameter)</span>
+                  </div>
+                  <div className="mt-4 flex items-baseline gap-2">
+                    <span className="text-3xl font-extrabold tracking-tight text-gray-900 dark:text-white">
+                      {activeYearStats.avgKpmr.toFixed(2)}
+                    </span>
+                    <span
+                      style={{ backgroundColor: C[getBand(activeYearStats.avgKpmr)] }}
+                      className="text-[9px] font-bold text-white px-2.5 py-0.5 rounded-full uppercase"
+                    >
+                      {NM.kpmr[getBand(activeYearStats.avgKpmr)]}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. Ketahanan Siber */}
+                <div className="rounded-3xl border border-slate-200 dark:border-slate-800/40 bg-slate-50/20 p-5 shadow-theme-xs flex flex-col justify-between">
+                  <div className="flex justify-between items-center text-xs font-semibold text-slate-700 dark:text-slate-400 uppercase tracking-wider">
+                    <span>Ketahanan Siber</span>
+                    <span className="opacity-60">(24 Parameter)</span>
+                  </div>
+                  <div className="mt-4 flex items-baseline gap-2">
+                    <span className="text-3xl font-extrabold tracking-tight text-gray-900 dark:text-white">
+                      {activeYearStats.avgKeta.toFixed(2)}
+                    </span>
+                    <span
+                      style={{ backgroundColor: C[getBand(activeYearStats.avgKeta)] }}
+                      className="text-[9px] font-bold text-white px-2.5 py-0.5 rounded-full uppercase"
+                    >
+                      {NM.keta[getBand(activeYearStats.avgKeta)]}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4. Maturitas Siber */}
+                <div className="rounded-3xl border border-emerald-200 dark:border-emerald-950/20 bg-emerald-50/10 p-5 shadow-theme-xs flex flex-col justify-between">
+                  <div className="flex justify-between items-center text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">
+                    <span>Maturitas Siber</span>
+                    <span className="opacity-60">(Rata-rata)</span>
+                  </div>
+                  <div className="mt-4 flex items-baseline gap-2">
+                    <span className="text-3xl font-extrabold tracking-tight text-gray-900 dark:text-white">
+                      {activeYearStats.avgMat.toFixed(2)}
+                    </span>
+                    <span
+                      style={{ backgroundColor: C[getBand(activeYearStats.avgMat)] }}
+                      className="text-[9px] font-bold text-white px-2.5 py-0.5 rounded-full uppercase"
+                    >
+                      {NM.mat[getBand(activeYearStats.avgMat)]}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Charts Row */}
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+              {/* Left: Annual Trend Line Chart */}
+              <div className="bg-white border border-gray-200 rounded-3xl dark:bg-white/[0.03] dark:border-gray-800 p-6 shadow-sm lg:col-span-6 flex flex-col justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                    Tren Perkembangan Penilaian Siber Tahunan
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Perbandingan nilai atribut dari tahun ke tahun
+                  </p>
+                </div>
+                <div className="mt-4 flex-1">
+                  {cyberStatsHistory.length > 0 ? (
+                    <ReactApexChart
+                      options={trendChartOptions}
+                      series={trendChartSeries}
+                      type="line"
+                      height={280}
+                    />
+                  ) : (
+                    <div className="h-[280px] flex items-center justify-center text-sm text-gray-400 italic">
+                      Data tidak mencukupi untuk membuat tren tahunan.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right: Category Breakdown Bar Chart */}
+              <div className="bg-white border border-gray-200 rounded-3xl dark:bg-white/[0.03] dark:border-gray-800 p-6 shadow-sm lg:col-span-6 flex flex-col justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                    Rincian Penilaian per Bidang ({selectedRecapYear})
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    Skor rata-rata per bidang/faktor kuesioner siber
+                  </p>
+                </div>
+                <div className="mt-4 flex-1">
+                  {activeYearStats ? (
+                    <ReactApexChart
+                      options={breakdownOptions}
+                      series={breakdownSeries}
+                      type="bar"
+                      height={280}
+                    />
+                  ) : (
+                    <div className="h-[280px] flex items-center justify-center text-sm text-gray-400 italic">
+                      Pilih tahun yang memiliki data penilaian valid.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            {/* Divider */}
+            <div className="border-b border-gray-100 dark:border-gray-800 my-4" />
+          </div>
+        )}
 
         {/* Stats and Radial chart */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">

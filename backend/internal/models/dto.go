@@ -8,7 +8,7 @@ type RegisterRequest struct {
 	NPP      string     `json:"npp" binding:"required"`
 	Password string     `json:"password"` // Optional if default password setting is active
 	FullName string     `json:"full_name" binding:"required"`
-	Role     Role       `json:"role" binding:"required,oneof=super_admin unit_admin employee market_liquidity_risk"`
+	Role     Role       `json:"role" binding:"required,oneof=super_admin unit_admin employee market_liquidity_risk cyber"`
 	UnitID   *uuid.UUID `json:"unit_id"` // Optional: used by super_admin when creating unit_admin
 }
 

@@ -81,6 +81,9 @@ export default function MarketLiquidityRiskDashboardPage() {
   const [selectedSubmission, setSelectedSubmission] = useState<MarketLiquidityRiskSubmission | null>(null);
 
   // Form Fields
+  const [reportType, setReportType] = useState<"monthly" | "yearly">("monthly");
+  const [reportMonth, setReportMonth] = useState<string>("Juli");
+  const [reportYear, setReportYear] = useState<string>("2026");
   const [formTitle, setFormTitle] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [formFileURL, setFormFileURL] = useState("");
@@ -103,6 +106,7 @@ export default function MarketLiquidityRiskDashboardPage() {
   // Detail Modal states
   const [viewingSheetData, setViewingSheetData] = useState<{ title: string; columns: string[]; rows: string[][] } | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [macroYearSelectorOpen, setMacroYearSelectorOpen] = useState(false);
 
   const openSheetDetail = (sheetName: string, modalTitle: string) => {
     let latestSubmission = null;
@@ -307,21 +311,389 @@ export default function MarketLiquidityRiskDashboardPage() {
   };
 
   // Open Workspace for Creating
+  // Helper to extract period from title
+  const parseReportPeriodFromTitle = (title: string) => {
+    const isYearly = title.toLowerCase().includes("makro monitoring");
+    setReportType(isYearly ? "yearly" : "monthly");
+    
+    // Extract year and month if possible
+    // Monthly titles look like: "Laporan Market & Liquidity Risk - Juli 2026"
+    // Yearly titles look like: "Makro Monitoring - 2026"
+    const parts = title.split(" - ");
+    if (parts.length > 1) {
+      const periodStr = parts[1].trim();
+      if (isYearly) {
+        setReportYear(periodStr);
+      } else {
+        const subParts = periodStr.split(" ");
+        if (subParts.length === 2) {
+          setReportMonth(subParts[0]);
+          setReportYear(subParts[1]);
+        }
+      }
+    }
+  };
+
+  const getPeriodFromTitle = (title: string) => {
+    const parts = title.split(" - ");
+    if (parts.length > 1) {
+      return parts[1].trim();
+    }
+    return "-";
+  };
+
+  const clearTableDataValues = (tableDataStr: string) => {
+    try {
+      const parsed = JSON.parse(tableDataStr);
+      if (!parsed || !parsed.sheets) return tableDataStr;
+      
+      parsed.sheets = parsed.sheets.map((sheet: any) => {
+        const nameLower = sheet.name.toLowerCase().trim();
+        const nextRows = sheet.rows ? sheet.rows.map((row: string[]) => {
+          const newRow = [...row];
+          if (nameLower.includes("rasio likuiditas")) {
+            // Rasio Likuiditas: clear index 2 (Value)
+            if (newRow.length > 2) newRow[2] = "";
+          } else if (nameLower.includes("deposito tertinggi")) {
+            // Deposito Tertinggi: clear index 1, 2, 3 (Nama Deposan, Nominal Deposito, Suku Bunga)
+            for (let i = 1; i < newRow.length; i++) {
+              newRow[i] = "";
+            }
+          } else if (nameLower.includes("market risk")) {
+            // Market Risk: clear index 2 (Value)
+            if (newRow.length > 2) newRow[2] = "";
+          } else {
+            // Custom sheets: clear columns index >= 2
+            for (let i = 2; i < newRow.length; i++) {
+              newRow[i] = "";
+            }
+          }
+          return newRow;
+        }) : [];
+
+        if (nameLower.includes("market risk") && sheet.columns && sheet.columns.length > 2) {
+          sheet.columns[2] = new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+        }
+
+        return {
+          ...sheet,
+          rows: nextRows
+        };
+      });
+      return JSON.stringify(parsed);
+    } catch (e) {
+      return tableDataStr;
+    }
+  };
+
+  const getLatestMonthlyTemplate = () => {
+    let templateTableData = "";
+    if (submissions && submissions.length > 0) {
+      const sorted = [...submissions]
+        .filter(s => !s.title.toLowerCase().includes("makro monitoring"))
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        
+      for (let i = 0; i < sorted.length; i++) {
+        if (sorted[i].table_data) {
+          try {
+            const parsed = JSON.parse(sorted[i].table_data);
+            if (parsed && parsed.sheets && parsed.sheets.length > 0) {
+              // Filter out both yearly sheets from monthly template
+              parsed.sheets = parsed.sheets.filter(
+                (s: any) => s.name.toLowerCase().trim() !== "makro monitoring" && s.name.toLowerCase().trim() !== "cost of fund"
+              );
+              templateTableData = clearTableDataValues(JSON.stringify(parsed));
+              break;
+            }
+          } catch (e) {}
+        }
+      }
+    }
+
+    if (!templateTableData) {
+      // Default structure for monthly sheets: Rasio Likuiditas, Deposito Tertinggi, Market Risk
+      templateTableData = JSON.stringify({
+        sheets: [
+          {
+            name: "Rasio Likuiditas",
+            color: "blue",
+            columns: ["No", "Rasio", "Value", "Risk Appetite", "Risk Tolerance", "Risk Limit"],
+            rows: [
+              ["1", "LDR", "", "<92%", "92% - 95%", ">95%"],
+              ["2", "AL/DPK", "", ">15%", "13% - 15%", "<13%"],
+              ["3", "AL/NCD", "", ">60%", "55% - 60%", "<55%"],
+              ["4", "AL/NAB/NCD", "", "≥70%", "65% - 70%", "<65%"],
+              ["5", "LCR", "", "100%", "95% - 100%", "<95%"],
+              ["6", "NSFR", "", "100%", "95% - 100%", "<95%"]
+            ]
+          },
+          {
+            name: "Deposito Tertinggi",
+            color: "green",
+            columns: ["No", "Nama Deposan", "Nominal Deposito", "Suku Bunga"],
+            rows: [
+              ["1", "", "", ""],
+              ["2", "", "", ""],
+              ["3", "", "", ""]
+            ]
+          },
+          {
+            name: "Market Risk",
+            color: "purple",
+            columns: ["No", "Uraian", new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })],
+            rows: [
+              ["1", "Nilai Tukar USD/IDR", ""],
+              ["2", "Suku Bunga JIBOR 1 Bulan", ""],
+              ["3", "Yield Surat Berharga Negara 10 Tahun", ""]
+            ]
+          }
+        ]
+      });
+    }
+    return templateTableData;
+  };
+
+  const cleanAndMigrateYearlyTableData = (tableDataStr: string): string => {
+    try {
+      const parsed = JSON.parse(tableDataStr);
+      if (!parsed || !parsed.sheets) return tableDataStr;
+
+      // 1. Strip duplicate "No" column from sheets if present
+      parsed.sheets = parsed.sheets.map((sheet: any) => {
+        if (sheet.columns && sheet.columns.length > 0) {
+          const firstCol = sheet.columns[0]?.toLowerCase().trim();
+          if (firstCol === "no") {
+            return {
+              ...sheet,
+              columns: sheet.columns.slice(1),
+              rows: sheet.rows ? sheet.rows.map((row: string[]) => row.slice(1)) : []
+            };
+          }
+        }
+        return sheet;
+      });
+
+      // 2. Check if Cost of Fund sheet is present and has data
+      let cofSheet = parsed.sheets.find(
+        (s: any) => s.name.toLowerCase().trim().includes("cost of fund") || s.name.toLowerCase().trim().includes("cof")
+      );
+
+      const hasCofData = cofSheet && cofSheet.rows && cofSheet.rows.some((row: string[]) => row.some((cell: string, cellIdx: number) => cellIdx > 0 && cell && cell.trim() !== ""));
+
+      if (!hasCofData) {
+        // Find existing Cost of Fund data from older submissions
+        let existingCofSheet: any = null;
+        if (submissions && submissions.length > 0) {
+          const sorted = [...submissions].sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          );
+          for (let i = 0; i < sorted.length; i++) {
+            if (sorted[i].table_data) {
+              try {
+                const oldParsed = JSON.parse(sorted[i].table_data);
+                const found = oldParsed?.sheets?.find(
+                  (s: any) => s.name.toLowerCase().trim().includes("cost of fund") || s.name.toLowerCase().trim().includes("cof")
+                );
+                const oldHasCof = found && found.rows && found.rows.some((row: string[]) => row.some((cell: string, cellIdx: number) => cellIdx > 0 && cell && cell.trim() !== ""));
+                if (oldHasCof) {
+                  existingCofSheet = found;
+                  break;
+                }
+              } catch (e) {}
+            }
+          }
+        }
+
+        if (existingCofSheet) {
+          // Strip "No" column if present
+          const firstCol = existingCofSheet.columns[0]?.toLowerCase().trim();
+          if (firstCol === "no") {
+            existingCofSheet = {
+              ...existingCofSheet,
+              columns: existingCofSheet.columns.slice(1),
+              rows: existingCofSheet.rows.map((row: string[]) => row.slice(1))
+            };
+          }
+
+          if (cofSheet) {
+            // Replace the empty cofSheet with the one that has data!
+            parsed.sheets = parsed.sheets.map((s: any) => 
+              (s.name.toLowerCase().trim().includes("cost of fund") || s.name.toLowerCase().trim().includes("cof")) ? existingCofSheet : s
+            );
+          } else {
+            // Append the existing cofSheet
+            parsed.sheets.push(existingCofSheet);
+          }
+        }
+      }
+
+      return JSON.stringify(parsed);
+    } catch (e) {
+      return tableDataStr;
+    }
+  };
+
+  const getMacroTemplate = (yearStr?: string) => {
+    const yr = yearStr || new Date().getFullYear().toString();
+    return JSON.stringify({
+      sheets: [
+        {
+          name: "Makro Monitoring",
+          color: "blue",
+          columns: ["Data Type", `18 Juni ${yr}`],
+          rows: [
+            ["Suku Bunga The Fed", ""],
+            ["Suku Bunga Acuan BI (BI Rate)", ""],
+            ["Tingkat Bunga Penjaminan LPS", ""],
+            ["Inflasi Indonesia", ""],
+            ["Inflasi Sumut", ""],
+            ["Cadangan Devisa", ""]
+          ]
+        },
+        {
+          name: "Cost of Fund",
+          color: "yellow",
+          columns: ["No", "Bulan", "CoF"],
+          rows: [
+            ["1", "Januari", ""],
+            ["2", "Februari", ""],
+            ["3", "Maret", ""],
+            ["4", "April", ""],
+            ["5", "Mei", ""],
+            ["6", "Juni", ""],
+            ["7", "Juli", ""],
+            ["8", "Agustus", ""],
+            ["9", "September", ""],
+            ["10", "Oktober", ""],
+            ["11", "November", ""],
+            ["12", "Desember", ""]
+          ]
+        }
+      ]
+    });
+  };
+
+  // Sync formTitle with selection in create mode
+  useEffect(() => {
+    if (workspaceMode === "create") {
+      if (reportType === "monthly") {
+        setFormTitle(`Laporan Market & Liquidity Risk - ${reportMonth} ${reportYear}`);
+      } else {
+        setFormTitle(`Makro Monitoring - ${reportYear}`);
+      }
+    }
+  }, [reportType, reportMonth, reportYear, workspaceMode]);
+
+  const handleReportTypeChange = (type: "monthly" | "yearly") => {
+    if (workspaceMode !== "create") return;
+    setReportType(type);
+    if (type === "monthly") {
+      setFormTableData(getLatestMonthlyTemplate());
+    } else {
+      setFormTableData(getMacroTemplate(reportYear));
+    }
+  };
+
+  // Open Workspace for Creating
   const openCreateWorkspace = () => {
     setWorkspaceMode("create");
     setSelectedSubmission(null);
-    setFormTitle("");
+    setReportType("monthly");
+    
+    const dateObj = new Date();
+    const months = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+    const currentMonth = months[dateObj.getMonth()];
+    const currentYear = dateObj.getFullYear().toString();
+    setReportMonth(currentMonth);
+    setReportYear(currentYear);
+    
+    setFormTitle(`Laporan Market & Liquidity Risk - ${currentMonth} ${currentYear}`);
     setFormDescription("");
     setFormFileURL("");
     setFormFileName("");
-    // Reset sheets with standard empty sheet
-    const defaultTableData = JSON.stringify({
+    
+    setFormTableData(getLatestMonthlyTemplate());
+    setIsWorkspaceOpen(true);
+  };
+
+  // Open Workspace using a specific submission as a template
+  const openCreateWithTemplate = (sub: MarketLiquidityRiskSubmission, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setWorkspaceMode("create");
+    setSelectedSubmission(null);
+    
+    parseReportPeriodFromTitle(sub.title);
+    
+    setFormDescription(sub.description);
+    setFormFileURL(""); // Clear attachment so they can upload a new one
+    setFormFileName("");
+    
+    let templateData = "";
+    if (sub.table_data) {
+      try {
+        const parsed = JSON.parse(sub.table_data);
+        if (parsed && parsed.sheets) {
+          // Filter out yearly sheets from monthly copies
+          parsed.sheets = parsed.sheets.filter(
+            (s: any) => s.name.toLowerCase().trim() !== "makro monitoring" && s.name.toLowerCase().trim() !== "cost of fund"
+          );
+          templateData = clearTableDataValues(JSON.stringify(parsed));
+        }
+      } catch (err) {}
+    }
+    
+    setFormTableData(templateData || JSON.stringify({
       sheets: [
         { name: "Sheet 1", columns: ["Kolom 1", "Kolom 2"], rows: [["", ""]] }
       ]
-    });
-    setFormTableData(defaultTableData);
+    }));
     setIsWorkspaceOpen(true);
+  };
+
+  // Open Workspace for Creating a Dedicated yearly Macro Monitoring Submission
+  const openCreateMacroWorkspace = () => {
+    setWorkspaceMode("create");
+    setSelectedSubmission(null);
+    setReportType("yearly");
+    
+    const currentYear = new Date().getFullYear().toString();
+    setReportYear(currentYear);
+    setFormTitle(`Makro Monitoring - ${currentYear}`);
+    setFormDescription("Laporan Parameter Makro Monitoring Tahunan");
+    setFormFileURL("");
+    setFormFileName("");
+    
+    const rawTemplate = getMacroTemplate(currentYear);
+    setFormTableData(cleanAndMigrateYearlyTableData(rawTemplate));
+    setIsWorkspaceOpen(true);
+  };
+
+  const openCreateMacroWorkspaceForYear = (year: string) => {
+    setWorkspaceMode("create");
+    setSelectedSubmission(null);
+    setReportType("yearly");
+    
+    setReportYear(year);
+    setFormTitle(`Makro Monitoring - ${year}`);
+    setFormDescription(`Laporan Parameter Makro Monitoring Tahunan - ${year}`);
+    setFormFileURL("");
+    setFormFileName("");
+    
+    const rawTemplate = getMacroTemplate(year);
+    setFormTableData(cleanAndMigrateYearlyTableData(rawTemplate));
+    setIsWorkspaceOpen(true);
+    setMacroYearSelectorOpen(false);
+  };
+
+  const openEditMacroWorkspaceForSub = (sub: MarketLiquidityRiskSubmission, e: React.MouseEvent) => {
+    openEditWorkspace(sub, e);
+    setMacroYearSelectorOpen(false);
+  };
+
+  // Global button handler for Macro Monitoring (opens a year selector modal)
+  const handleManageMacro = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setMacroYearSelectorOpen(true);
   };
 
   // Open Workspace for Editing
@@ -329,11 +701,17 @@ export default function MarketLiquidityRiskDashboardPage() {
     e.stopPropagation();
     setWorkspaceMode("edit");
     setSelectedSubmission(sub);
+    parseReportPeriodFromTitle(sub.title);
     setFormTitle(sub.title);
     setFormDescription(sub.description);
     setFormFileURL(sub.file_url);
     setFormFileName(sub.file_name);
-    setFormTableData(sub.table_data || JSON.stringify({
+    
+    const cleanData = sub.title.toLowerCase().includes("makro monitoring") 
+      ? cleanAndMigrateYearlyTableData(sub.table_data || "")
+      : sub.table_data;
+
+    setFormTableData(cleanData || JSON.stringify({
       sheets: [
         { name: "Sheet 1", columns: ["Kolom 1", "Kolom 2"], rows: [["", ""]] }
       ]
@@ -345,6 +723,7 @@ export default function MarketLiquidityRiskDashboardPage() {
   const openViewWorkspace = (sub: MarketLiquidityRiskSubmission) => {
     setWorkspaceMode("view");
     setSelectedSubmission(sub);
+    parseReportPeriodFromTitle(sub.title);
     setFormTitle(sub.title);
     setFormDescription(sub.description);
     setFormFileURL(sub.file_url);
@@ -356,6 +735,8 @@ export default function MarketLiquidityRiskDashboardPage() {
     }));
     setIsWorkspaceOpen(true);
   };
+
+
 
   // Close Workspace
   const closeWorkspace = () => {
@@ -438,6 +819,21 @@ export default function MarketLiquidityRiskDashboardPage() {
     return sub.title.toLowerCase().includes(q) || sub.description.toLowerCase().includes(q);
   });
 
+  // Get latest periods for subtitle summary badges
+  const latestMonthlyPeriod = React.useMemo(() => {
+    const monthlySubs = submissions.filter(s => !s.title.toLowerCase().includes("makro monitoring"));
+    if (monthlySubs.length === 0) return null;
+    const sorted = [...monthlySubs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return getPeriodFromTitle(sorted[0].title);
+  }, [submissions]);
+
+  const latestYearlyPeriod = React.useMemo(() => {
+    const yearlySubs = submissions.filter(s => s.title.toLowerCase().includes("makro monitoring"));
+    if (yearlySubs.length === 0) return null;
+    const sorted = [...yearlySubs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return getPeriodFromTitle(sorted[0].title);
+  }, [submissions]);
+
   // Stats calculation
   const totalReports = filteredSubmissionsByYear.length;
   const totalFiles = filteredSubmissionsByYear.filter((s) => s.file_url !== "").length;
@@ -452,32 +848,12 @@ export default function MarketLiquidityRiskDashboardPage() {
 
   // Extracted Stats for Deposito and Cost of Fund
   const extractedStats = React.useMemo(() => {
-    let latestSubmission = null;
-    for (let i = filteredSubmissionsByYear.length - 1; i >= 0; i--) {
-      if (filteredSubmissionsByYear[i].table_data) {
-        try {
-          const parsed = JSON.parse(submissions[i].table_data);
-          if (parsed && parsed.sheets && parsed.sheets.length > 0) {
-            latestSubmission = parsed;
-            break;
-          }
-        } catch (e) {
-          // ignore
-        }
-      }
-    }
-
-    if (!latestSubmission) return null;
-
-    let depositoData: { topItems: { name: string; amount: string; rate: string }[]; maxAmount: string; maxRate: string } | null = null;
-    let cofData: { 
-      overallRate: string; 
-      isMonthlyInSheet: boolean;
-      cardItems: { name: string; rate: string; amount?: string }[];
-      allModalItems: { name: string; rate: string; amount?: string }[];
-      rawColumns?: string[];
-      rawRows?: string[][];
-    } | null = null;
+    let depSheet = null;
+    let depSubmission = null;
+    let cofSheet = null;
+    let cofSubmission = null;
+    let liqSheet = null;
+    let liqSubmission = null;
 
     // Helper to check if string contains month names
     const isMonthName = (str: string): boolean => {
@@ -491,13 +867,64 @@ export default function MarketLiquidityRiskDashboardPage() {
       return months.some(m => lower.includes(m));
     };
 
-    // 1. Parse Deposito Tertinggi
-    const depSheet = latestSubmission.sheets.find(
-      (s: any) => s.name.toLowerCase().trim().includes("deposito tertinggi") || s.name.toLowerCase().trim().includes("deposito")
-    );
+    // Scan submissions from newest to oldest to find latest sheet instances
+    for (let i = filteredSubmissionsByYear.length - 1; i >= 0; i--) {
+      const sub = filteredSubmissionsByYear[i];
+      if (sub.table_data) {
+        try {
+          const parsed = JSON.parse(sub.table_data);
+          if (parsed && parsed.sheets) {
+            if (!depSheet) {
+              const found = parsed.sheets.find(
+                (s: any) => s.name.toLowerCase().trim().includes("deposito tertinggi") || s.name.toLowerCase().trim().includes("deposito")
+              );
+              if (found) {
+                depSheet = found;
+                depSubmission = parsed;
+              }
+            }
+            if (!cofSheet) {
+              const found = parsed.sheets.find(
+                (s: any) => s.name.toLowerCase().trim().includes("cost of fund") || s.name.toLowerCase().trim().includes("cof")
+              );
+              if (found) {
+                cofSheet = found;
+                cofSubmission = parsed;
+              }
+            }
+            if (!liqSheet) {
+              const found = parsed.sheets.find(
+                (s: any) => s.name.toLowerCase().trim().includes("likuiditas") || s.name.toLowerCase().trim().includes("rasio")
+              );
+              if (found) {
+                liqSheet = found;
+                liqSubmission = parsed;
+              }
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    let depositoData: { topItems: { name: string; amount: string; rate: string }[]; maxAmount: string; maxRate: string } | null = null;
+    let cofData: { 
+      overallRate: string; 
+      isMonthlyInSheet: boolean;
+      cardItems: { name: string; rate: string; amount?: string }[];
+      allModalItems: { name: string; rate: string; amount?: string }[];
+      rawColumns?: string[];
+      rawRows?: string[][];
+    } | null = null;
+    let likuiditasData: {
+      greenCount: number;
+      yellowCount: number;
+      redCount: number;
+      items: { name: string; value: string; color: "green" | "yellow" | "red" | "gray" }[];
+    } | null = null;
+
+    // 1. Parse Deposito
     if (depSheet && depSheet.rows && depSheet.rows.length > 0) {
       const columns = depSheet.columns.map((c: string) => c.toLowerCase().trim());
-      
       const nameIdx = columns.findIndex((c: string) => c.includes("nama") || c.includes("deposan") || c.includes("nasabah") || c.includes("uraian") || c.includes("kolom 1") || c.includes("data type") || c.includes("komponen"));
       const nominalIdx = columns.findIndex((c: string) => c.includes("nominal") || c.includes("jumlah") || c.includes("nilai") || c.includes("volume") || c.includes("saldo"));
       const rateIdx = columns.findIndex((c: string) => c.includes("rate") || c.includes("bunga") || c.includes("suku bunga") || c.includes("current"));
@@ -539,12 +966,8 @@ export default function MarketLiquidityRiskDashboardPage() {
     }
 
     // 2. Parse Cost of Fund
-    const cofSheet = latestSubmission.sheets.find(
-      (s: any) => s.name.toLowerCase().trim().includes("cost of fund") || s.name.toLowerCase().trim().includes("cof")
-    );
     if (cofSheet && cofSheet.rows && cofSheet.rows.length > 0) {
       const columns = cofSheet.columns.map((c: string) => c.toLowerCase().trim());
-      
       const nameIdx = columns.findIndex((c: string) => c.includes("sumber") || c.includes("komponen") || c.includes("dana") || c.includes("nama") || c.includes("uraian") || c.includes("kolom 1") || c.includes("data type") || c.includes("bulan"));
       const rateIdx = columns.findIndex((c: string) => c.includes("rate") || c.includes("bunga") || c.includes("cost") || c.includes("suku bunga") || c.includes("current") || c.includes("persen") || c.includes("cof"));
       const amountIdx = columns.findIndex((c: string) => c.includes("nominal") || c.includes("jumlah") || c.includes("nilai") || c.includes("volume") || c.includes("saldo"));
@@ -556,7 +979,6 @@ export default function MarketLiquidityRiskDashboardPage() {
         return { name, rate, amount };
       }).filter((r: any) => r.name || r.rate);
 
-      // Check if rows represent monthly rates
       const hasMonths = rowsData.some((r: any) => isMonthName(r.name));
 
       if (hasMonths) {
@@ -566,7 +988,7 @@ export default function MarketLiquidityRiskDashboardPage() {
         cofData = {
           overallRate: latestRow ? latestRow.rate : "-",
           isMonthlyInSheet: true,
-          cardItems: monthlyRows.slice(-3).reverse(), // Take last 3 months, reverse to show newest first
+          cardItems: monthlyRows.slice(-3).reverse(),
           allModalItems: monthlyRows,
           rawColumns: cofSheet.columns,
           rawRows: cofSheet.rows
@@ -584,7 +1006,6 @@ export default function MarketLiquidityRiskDashboardPage() {
           }
         }
 
-        // Gather CoF history from last submissions
         const historicalCof: { name: string; rate: string }[] = [];
         const sortedSubs = [...filteredSubmissionsByYear].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         
@@ -629,17 +1050,15 @@ export default function MarketLiquidityRiskDashboardPage() {
                   }
                 }
               }
-            } catch (e) {
-              // ignore
-            }
+            } catch (e) {}
           }
         });
 
         cofData = {
           overallRate: overallRate || "-",
           isMonthlyInSheet: false,
-          cardItems: historicalCof.slice(0, 3), // Show last 3 submissions' CoF rates in card
-          allModalItems: historicalCof,          // Show all in modal
+          cardItems: historicalCof.slice(0, 3),
+          allModalItems: historicalCof,
           rawColumns: cofSheet.columns,
           rawRows: cofSheet.rows
         };
@@ -647,19 +1066,8 @@ export default function MarketLiquidityRiskDashboardPage() {
     }
 
     // 3. Parse Rasio Likuiditas
-    let likuiditasData: {
-      greenCount: number;
-      yellowCount: number;
-      redCount: number;
-      items: { name: string; value: string; color: "green" | "yellow" | "red" | "gray" }[];
-    } | null = null;
-
-    const liqSheet = latestSubmission.sheets.find(
-      (s: any) => s.name.toLowerCase().trim().includes("likuiditas") || s.name.toLowerCase().trim().includes("rasio")
-    );
     if (liqSheet && liqSheet.rows && liqSheet.rows.length > 0) {
       const columns = liqSheet.columns.map((c: string) => c.toLowerCase().trim());
-      
       const nameIdx = columns.findIndex((c: string) => c.includes("rasio") || c.includes("nama") || c.includes("uraian") || c.includes("kolom 1") || c.includes("parameter"));
       const valIdx = columns.findIndex((c: string) => c.includes("value") || c.includes("realisasi") || c.includes("current") || c.includes("kini") || c.includes("nilai") || c.includes("hasil"));
 
@@ -769,7 +1177,7 @@ export default function MarketLiquidityRiskDashboardPage() {
           <div className="space-y-1">
             <button
               onClick={closeWorkspace}
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-500 hover:text-purple-650 dark:text-gray-400 mb-2 transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-500 hover:text-purple-600 dark:text-gray-400 mb-2 transition cursor-pointer"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
@@ -811,19 +1219,62 @@ export default function MarketLiquidityRiskDashboardPage() {
           )
         ) : (
           <div className="bg-white border border-gray-200 rounded-3xl dark:bg-white/[0.03] dark:border-gray-800 p-6 shadow-sm space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-4">
               <div className="space-y-1.5">
-                <Label>Judul Laporan <span className="text-error-500">*</span></Label>
-                <input
-                  type="text"
-                  placeholder="Contoh: Laporan Keuangan Kuartal 2"
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  maxLength={100}
-                  className="w-full h-11 text-sm rounded-xl border border-gray-300 dark:border-gray-800 bg-transparent px-4 placeholder:text-gray-450 focus:border-purple-500 focus:outline-hidden dark:text-white"
-                />
+                <Label>Tipe Laporan</Label>
+                <select
+                  disabled={workspaceMode !== "create"}
+                  value={reportType}
+                  onChange={(e) => handleReportTypeChange(e.target.value as "monthly" | "yearly")}
+                  className="w-full h-11 text-sm rounded-xl border border-gray-300 dark:border-gray-800 bg-transparent px-4 focus:border-purple-500 focus:outline-hidden dark:text-white dark:bg-gray-800 cursor-pointer"
+                >
+                  <option value="monthly">Laporan Bulanan (Rasio, Deposito, CoF, Market Risk)</option>
+                  <option value="yearly">Laporan Tahunan (Makro Monitoring)</option>
+                </select>
               </div>
 
+              {reportType === "monthly" && (
+                <div className="space-y-1.5">
+                  <Label>Bulan Laporan</Label>
+                  <select
+                    disabled={workspaceMode !== "create"}
+                    value={reportMonth}
+                    onChange={(e) => setReportMonth(e.target.value)}
+                    className="w-full h-11 text-sm rounded-xl border border-gray-300 dark:border-gray-800 bg-transparent px-4 focus:border-purple-500 focus:outline-hidden dark:text-white dark:bg-gray-800 cursor-pointer"
+                  >
+                    {["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"].map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <Label>Tahun Laporan</Label>
+                <select
+                  disabled={workspaceMode !== "create"}
+                  value={reportYear}
+                  onChange={(e) => setReportYear(e.target.value)}
+                  className="w-full h-11 text-sm rounded-xl border border-gray-300 dark:border-gray-800 bg-transparent px-4 focus:border-purple-500 focus:outline-hidden dark:text-white dark:bg-gray-800 cursor-pointer"
+                >
+                  {["2024", "2025", "2026", "2027", "2028", "2029", "2030"].map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Judul Laporan</Label>
+                <input
+                  type="text"
+                  readOnly
+                  value={formTitle}
+                  className="w-full h-11 text-sm rounded-xl border border-gray-300 bg-gray-50/50 dark:border-gray-800 dark:bg-white/[0.02] px-4 text-gray-500 focus:outline-hidden dark:text-gray-400"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="space-y-1.5">
                 <Label>Unggah File Lampiran (Opsional)</Label>
                 <div className="flex items-center gap-3">
@@ -886,7 +1337,7 @@ export default function MarketLiquidityRiskDashboardPage() {
         {isViewMode && formFileURL && (
           <div className="p-4 border border-success-100 bg-success-50/10 dark:bg-success-500/[0.02] rounded-2xl flex items-center justify-between max-w-4xl shadow-theme-xs">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-success-100 rounded-xl dark:bg-success-500/20 text-success-650 flex items-center justify-center">
+              <div className="w-10 h-10 bg-success-100 rounded-xl dark:bg-success-500/20 text-success-600 flex items-center justify-center">
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
@@ -900,7 +1351,7 @@ export default function MarketLiquidityRiskDashboardPage() {
               href={formFileURL}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center justify-center px-4 py-2.5 text-xs font-bold text-white bg-success-650 hover:bg-success-700 rounded-xl transition cursor-pointer"
+              className="inline-flex items-center justify-center px-4 py-2.5 text-xs font-bold text-white bg-success-600 hover:bg-success-700 rounded-xl transition cursor-pointer"
             >
               Unduh File
             </a>
@@ -1041,7 +1492,7 @@ export default function MarketLiquidityRiskDashboardPage() {
           <div>
             <div className="flex items-center justify-between border-b pb-2.5 dark:border-gray-800">
               <div className="flex items-center gap-2">
-                <div className="flex items-center justify-center w-8 h-8 bg-purple-50 rounded-lg dark:bg-purple-500/10 text-purple-650">
+                <div className="flex items-center justify-center w-8 h-8 bg-purple-50 rounded-lg dark:bg-purple-500/10 text-purple-600">
                   <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
                   </svg>
@@ -1184,7 +1635,19 @@ export default function MarketLiquidityRiskDashboardPage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-4 dark:border-gray-800">
           <div>
             <h3 className="text-lg font-bold text-gray-900 dark:text-white">Daftar Input Data</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Kelola berkas excel dan laporan pribadi yang Anda input</p>
+            <div className="flex flex-wrap items-center gap-2.5 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Kelola berkas excel dan laporan pribadi yang Anda input</p>
+              {latestMonthlyPeriod && (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-550/10 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400 border border-purple-100 dark:border-purple-900/30">
+                  Update Bulanan Terakhir: {latestMonthlyPeriod}
+                </span>
+              )}
+              {latestYearlyPeriod && (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400 border border-blue-100 dark:border-blue-900/30">
+                  Update Makro Terakhir: {latestYearlyPeriod}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="relative max-w-xs">
@@ -1202,6 +1665,15 @@ export default function MarketLiquidityRiskDashboardPage() {
                 className="h-10 w-full rounded-xl border border-gray-300 dark:border-gray-800 bg-transparent pl-9 pr-3 text-xs shadow-theme-xs placeholder:text-gray-450 focus:border-brand-500 focus:outline-hidden dark:text-white"
               />
             </div>
+            <button
+              onClick={handleManageMacro}
+              className="inline-flex items-center gap-1.5 px-4.5 py-2.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 dark:bg-purple-500/10 dark:text-purple-400 border border-purple-100 dark:border-purple-900/30 rounded-xl transition shadow-sm cursor-pointer"
+            >
+              <svg className="w-4.5 h-4.5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              Kelola Makro (Pertahun)
+            </button>
             <button
               onClick={openCreateWorkspace}
               className="inline-flex items-center gap-1.5 px-4.5 py-2.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition shadow-sm cursor-pointer"
@@ -1241,6 +1713,7 @@ export default function MarketLiquidityRiskDashboardPage() {
                 <tr>
                   <th scope="col" className="px-6 py-4.5 w-12 text-center">No</th>
                   <th scope="col" className="px-6 py-4.5">Nama Laporan</th>
+                  <th scope="col" className="px-6 py-4.5">Periode Laporan</th>
                   <th scope="col" className="px-6 py-4.5">Lampiran Berkas</th>
                   <th scope="col" className="px-6 py-4.5">Tanggal Input</th>
                   <th scope="col" className="px-6 py-4.5 text-center">Tindakan</th>
@@ -1265,6 +1738,15 @@ export default function MarketLiquidityRiskDashboardPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                        sub.title.toLowerCase().includes("makro monitoring")
+                          ? "bg-blue-500/10 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400 border border-blue-100/30"
+                          : "bg-purple-550/10 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400 border border-purple-100/30"
+                      }`}>
+                        {getPeriodFromTitle(sub.title)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
                       {sub.file_url ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-400 border border-success-100/30 max-w-[200px] truncate" title={sub.file_name}>
                           <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1287,6 +1769,15 @@ export default function MarketLiquidityRiskDashboardPage() {
                           title="Buka Ruang Kerja"
                         >
                           Buka
+                        </button>
+                        <button
+                          onClick={(e) => openCreateWithTemplate(sub, e)}
+                          className="p-2 text-gray-450 hover:text-purple-600 rounded-lg hover:bg-gray-50 dark:hover:bg-white/5 transition"
+                          title="Gunakan sebagai Template Laporan Baru"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                          </svg>
                         </button>
                         <button
                           onClick={(e) => openEditWorkspace(sub, e)}
@@ -1422,6 +1913,80 @@ export default function MarketLiquidityRiskDashboardPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Modal: Select Year for Macro Monitoring */}
+      {macroYearSelectorOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-gray-900/60 backdrop-blur-xs transition-opacity" 
+            onClick={() => setMacroYearSelectorOpen(false)}
+          />
+          
+          {/* Content */}
+          <div className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl dark:bg-gray-900 border border-gray-100 dark:border-gray-800 transition-all z-10">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-4 dark:border-gray-800">
+              <h3 className="text-base font-bold text-gray-900 dark:text-white font-outfit">
+                Pilih Tahun Makro Monitoring
+              </h3>
+              <button 
+                onClick={() => setMacroYearSelectorOpen(false)}
+                className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="mt-4 space-y-3">
+              {["2024", "2025", "2026", "2027", "2028"].map(yr => {
+                const existing = submissions.find(
+                  s => s.title.toLowerCase().includes("makro monitoring") && s.title.includes(yr)
+                );
+                
+                return (
+                  <div 
+                    key={yr}
+                    className="flex items-center justify-between p-3.5 rounded-2xl border border-gray-100 dark:border-gray-850 bg-gray-50/50 dark:bg-white/[0.01]"
+                  >
+                    <div>
+                      <div className="text-sm font-bold text-gray-900 dark:text-white">Tahun {yr}</div>
+                      <div className="mt-0.5">
+                        {existing ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-400 border border-success-100/30">
+                            Terisi (Makro & CoF)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-white/5 dark:text-gray-400">
+                            Belum Ada Data
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {existing ? (
+                      <button
+                        onClick={(e) => openEditMacroWorkspaceForSub(existing, e)}
+                        className="px-3.5 py-1.5 text-[11px] font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 dark:bg-purple-500/10 dark:text-purple-400 border border-purple-100 dark:border-purple-900/30 rounded-xl transition cursor-pointer"
+                      >
+                        Buka & Edit
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => openCreateMacroWorkspaceForYear(yr)}
+                        className="px-3.5 py-1.5 text-[11px] font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition shadow-xs cursor-pointer"
+                      >
+                        Buat Baru
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1618,6 +2183,50 @@ function TableEditor({
   // Makro Monitoring period date picker states
   const [addPeriodOpen, setAddPeriodOpen] = useState(false);
   const [newPeriodDate, setNewPeriodDate] = useState(new Date().toISOString().split("T")[0]);
+
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+
+  const handleExportActiveSheet = () => {
+    const current = sheets[activeSheetIdx];
+    if (!current) return;
+    try {
+      const wb = XLSX.utils.book_new();
+      const sheetData: any[][] = [];
+      sheetData.push(current.columns);
+      if (current.rows && current.rows.length > 0) {
+        sheetData.push(...current.rows);
+      }
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+      const sheetName = current.name.substring(0, 30);
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      
+      const fileName = `${sheetName.replace(/[^a-zA-Z0-9_\-]/g, "_")}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+    } catch (err: any) {
+      alert(`Gagal mengekspor sheet: ${err.message || err}`);
+    }
+  };
+
+  const handleExportAllSheets = () => {
+    if (sheets.length === 0) return;
+    try {
+      const wb = XLSX.utils.book_new();
+      sheets.forEach((sheet) => {
+        const sheetData: any[][] = [];
+        sheetData.push(sheet.columns);
+        if (sheet.rows && sheet.rows.length > 0) {
+          sheetData.push(...sheet.rows);
+        }
+        const ws = XLSX.utils.aoa_to_sheet(sheetData);
+        const sheetName = sheet.name.substring(0, 30);
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      });
+      const fileName = `Laporan_Market_Liquidity_Risk_Lengkap.xlsx`;
+      XLSX.writeFile(wb, fileName);
+    } catch (err: any) {
+      alert(`Gagal mengekspor semua sheet: ${err.message || err}`);
+    }
+  };
 
   const handleStartRenameSheet = (idx: number, currentName: string) => {
     if (disabled) return;
@@ -2352,7 +2961,7 @@ function TableEditor({
               />
               Kolom No. Otomatis
             </label>
-            {currentSheet.name.toLowerCase().trim() === "makro monitoring" && (
+            {(currentSheet.name.toLowerCase().trim() === "makro monitoring" || currentSheet.name.toLowerCase().trim() === "market risk") && (
               <button
                 type="button"
                 onClick={() => {
@@ -2393,6 +3002,52 @@ function TableEditor({
                 className="hidden"
               />
             </label>
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setExportMenuOpen(!exportMenuOpen)}
+                className="px-2 py-1 text-[10px] font-bold text-white bg-green-600 hover:bg-green-700 rounded-md cursor-pointer inline-flex items-center gap-1 select-none shadow-sm transition"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Ekspor Excel
+              </button>
+              {exportMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setExportMenuOpen(false)} />
+                  <div className="absolute right-0 mt-1 w-44 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-lg py-1.5 z-50 text-left">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleExportActiveSheet();
+                        setExportMenuOpen(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-[11px] font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition flex items-center gap-1.5"
+                    >
+                      <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Unduh Sheet Aktif
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleExportAllSheets();
+                        setExportMenuOpen(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-[11px] font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition flex items-center gap-1.5 border-t border-gray-100 dark:border-gray-800"
+                    >
+                      <svg className="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2" />
+                      </svg>
+                      Unduh Semua Sheet
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 

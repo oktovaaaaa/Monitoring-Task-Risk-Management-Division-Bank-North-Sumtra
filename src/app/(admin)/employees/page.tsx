@@ -283,7 +283,7 @@ export default function EmployeesPage() {
         throw new Error(data.message || "Gagal memperbarui role karyawan.");
       }
 
-      showPopup("success", `Role karyawan "${editingEmployee.full_name}" berhasil diperbarui menjadi ${newRole === "market_liquidity_risk" ? "Market & Liquidity Risk" : "Karyawan"}!`);
+      showPopup("success", `Role karyawan "${editingEmployee.full_name}" berhasil diperbarui menjadi ${newRole === "market_liquidity_risk" ? "Market & Liquidity Risk" : (newRole === "cyber" ? "Cyber Security / Risk" : "Karyawan")}!`);
       setEditingEmployee(null);
       fetchEmployees();
     } catch (err: any) {
@@ -491,6 +491,7 @@ export default function EmployeesPage() {
                 >
                   <option value="employee">Karyawan Biasa</option>
                   <option value="market_liquidity_risk">Market & Liquidity Risk</option>
+                  <option value="cyber">Cyber Security / Risk</option>
                 </select>
               </div>
 
@@ -714,7 +715,7 @@ export default function EmployeesPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-purple-50 text-purple-700 dark:bg-purple-500/10 dark:text-purple-400 border border-purple-100 dark:border-purple-500/20">
-                          {emp.role === "market_liquidity_risk" ? "Market & Liquidity Risk" : "Karyawan"}
+                          {emp.role === "market_liquidity_risk" ? "Market & Liquidity Risk" : (emp.role === "cyber" ? "Cyber Security / Risk" : "Karyawan")}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -818,6 +819,7 @@ export default function EmployeesPage() {
             >
               <option value="employee">Karyawan Biasa</option>
               <option value="market_liquidity_risk">Market & Liquidity Risk</option>
+              <option value="cyber">Cyber Security / Risk</option>
             </select>
           </div>
 

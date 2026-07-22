@@ -36,9 +36,10 @@ func main() {
 	notifHandler := handler.NewNotificationHandler(notifRepo)
 	imamHandler := handler.NewImamHandler(config.AppConfig.DB)
 	macroHandler := handler.NewMacroHandler(config.AppConfig.DB)
+	cyberHandler := handler.NewCyberHandler(config.AppConfig.DB)
 
 	// Setup Routes
-	router := http.SetupRouter(authHandler, taskHandler, notifHandler, imamHandler, macroHandler)
+	router := http.SetupRouter(authHandler, taskHandler, notifHandler, imamHandler, macroHandler, cyberHandler)
 
 	// Start Server
 	addr := fmt.Sprintf(":%s", config.AppConfig.Port)

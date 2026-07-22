@@ -75,7 +75,7 @@ func (r *userRepository) Update(user *models.User) error {
 
 func (r *userRepository) FindAllEmployees() ([]models.User, error) {
 	var users []models.User
-	err := r.db.Preload("Unit").Where("role IN ?", []models.Role{models.RoleEmployee, models.RoleMarketLiquidityRisk}).Find(&users).Error
+	err := r.db.Preload("Unit").Where("role IN ?", []models.Role{models.RoleEmployee, models.RoleMarketLiquidityRisk, models.RoleCyber}).Find(&users).Error
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func (r *userRepository) FindAllEmployees() ([]models.User, error) {
 
 func (r *userRepository) FindEmployeesByUnit(unitID uuid.UUID) ([]models.User, error) {
 	var users []models.User
-	err := r.db.Preload("Unit").Where("role IN ? AND unit_id = ?", []models.Role{models.RoleEmployee, models.RoleMarketLiquidityRisk}, unitID).Find(&users).Error
+	err := r.db.Preload("Unit").Where("role IN ? AND unit_id = ?", []models.Role{models.RoleEmployee, models.RoleMarketLiquidityRisk, models.RoleCyber}, unitID).Find(&users).Error
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (r *userRepository) FindEmployeesByUnit(unitID uuid.UUID) ([]models.User, e
 
 func (r *userRepository) AssignUsersToUnit(userIDs []uuid.UUID, unitID uuid.UUID) error {
 	tx := r.db.Begin()
-	allowedRoles := []models.Role{models.RoleEmployee, models.RoleMarketLiquidityRisk}
+	allowedRoles := []models.Role{models.RoleEmployee, models.RoleMarketLiquidityRisk, models.RoleCyber}
 	if err := tx.Model(&models.User{}).Where("unit_id = ? AND role IN ?", unitID, allowedRoles).Update("unit_id", nil).Error; err != nil {
 		tx.Rollback()
 		return err

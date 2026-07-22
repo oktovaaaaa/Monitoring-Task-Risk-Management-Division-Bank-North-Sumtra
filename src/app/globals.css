@@ -282,11 +282,9 @@
 
 
 @layer utilities {
-  /* For Remove Date Icon */
-  input[type="date"]::-webkit-inner-spin-button,
-  input[type="time"]::-webkit-inner-spin-button,
-  input[type="date"]::-webkit-calendar-picker-indicator,
-  input[type="time"]::-webkit-calendar-picker-indicator {
+  /* For Remove Date Icon when explicitly requested */
+  .hide-date-icon::-webkit-inner-spin-button,
+  .hide-date-icon::-webkit-calendar-picker-indicator {
     display: none;
     -webkit-appearance: none;
   }

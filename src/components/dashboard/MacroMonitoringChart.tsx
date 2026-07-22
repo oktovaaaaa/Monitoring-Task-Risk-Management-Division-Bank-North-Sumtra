@@ -47,8 +47,10 @@ function parseVal(val: string): number {
   cleaned = cleaned.replace(/,/g, ".");
 
   // Handle range values like "3.50-3.75" by returning their average
-  if (cleaned.includes("-")) {
-    const parts = cleaned.split("-");
+  // Support standard hyphen (-), en-dash (–), em-dash (—), and minus sign (−)
+  const dashRegex = /[-\u2013\u2014\u2212]/;
+  if (dashRegex.test(cleaned)) {
+    const parts = cleaned.split(dashRegex);
     const val1 = parseFloat(parts[0]);
     const val2 = parseFloat(parts[1]);
     if (!isNaN(val1) && !isNaN(val2)) {
@@ -90,9 +92,10 @@ function parseIndonesianDate(dateStr: string, fallbackYear?: number): Date | nul
   let s = dateStr.toLowerCase().trim();
   
   // If there is a range like "18-19 Maret 2026" or "30 April-1 Mei 2025",
-  // split by "-" and take the second part which contains the full month and year.
-  if (s.includes("-")) {
-    const parts = s.split("-");
+  // split by dash and take the second part which contains the full month and year.
+  const dashRegex = /[-\u2013\u2014\u2212]/;
+  if (dashRegex.test(s)) {
+    const parts = s.split(dashRegex);
     if (parts.length > 1) {
       s = parts[1].trim(); // e.g. "19 maret 2026" or "1 mei 2025"
     }
@@ -353,7 +356,7 @@ export default function MacroMonitoringChart({ token, submissions }: MacroMonito
       gradient: { shadeIntensity: 1, opacityFrom: 0.45, opacityTo: 0.05, stops: [0, 90, 100] },
     },
     dataLabels: {
-      enabled: true,
+      enabled: false,
       formatter: (val, opts) => {
         const idx = opts?.dataPointIndex;
         if (idx !== undefined && filteredPoints[idx]) {
